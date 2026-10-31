@@ -583,6 +583,44 @@ const migrations: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_studio_versions ON studio_versions(creation_id, id)
     `
+  },
+  {
+    name: "019_server_audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS audit_files (
+        key TEXT PRIMARY KEY,
+        engine INTEGER NOT NULL,
+        size INTEGER NOT NULL DEFAULT 0,
+        findings_json TEXT NOT NULL DEFAULT '[]',
+        events_json TEXT NOT NULL DEFAULT '[]',
+        analyzed_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS audit_scans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        trigger TEXT NOT NULL DEFAULT 'manual',
+        actor_discord_id TEXT,
+        created_at TEXT NOT NULL,
+        finished_at TEXT,
+        inventory_json TEXT,
+        report_json TEXT,
+        score INTEGER,
+        critical INTEGER NOT NULL DEFAULT 0,
+        high INTEGER NOT NULL DEFAULT 0,
+        medium INTEGER NOT NULL DEFAULT 0,
+        info INTEGER NOT NULL DEFAULT 0,
+        progress TEXT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_scans ON audit_scans(server_id, id);
+      CREATE TABLE IF NOT EXISTS audit_settings (
+        server_id TEXT PRIMARY KEY,
+        continuous INTEGER NOT NULL DEFAULT 0,
+        alert INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL
+      )
+    `
   }
 ];
 

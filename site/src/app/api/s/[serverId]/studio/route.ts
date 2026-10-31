@@ -21,10 +21,13 @@ const createSchema = z.object({
   name: z.string().trim().min(2).max(60),
   resource: z.string().regex(RESOURCE_RE).optional(),
   framework: z.enum(FRAMEWORKS.map((f) => f.key) as [string, ...string[]]).default("standalone"),
-  center: z.tuple([z.number(), z.number(), z.number()]).optional()
+  center: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  /** Start with blocks (script) or the simple builder (UI, from `template`) instead of code. */
+  visual: z.boolean().optional(),
+  template: z.string().max(20).optional()
 });
 
-/** POST /api/s/:serverId/studio — new creation (empty; the editor then asks the AI with the description). */
+/** POST /api/s/:serverId/studio — new creation (empty or visual; the editor then asks the AI with the description, if any). */
 export async function POST(req: NextRequest, { params }: ServerRouteContext) {
   const guard = await requirePermissionApi((await params).serverId, "studio");
   if ("error" in guard) return guard.error;

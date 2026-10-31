@@ -11,7 +11,7 @@ export const KIND_META: Record<CreationKind, { title: string; one: string; lead:
   ui: {
     title: "UI Creator",
     one: "interface",
-    lead: "Décris une interface (HUD, menu, notification, écran de chargement…) : l'IA écrit la page NUI et le client.lua qui l'ouvre. Tu la testes ici avant de l'envoyer sur le serveur.",
+    lead: "Assemble une fenêtre en mode simple (titres, boutons, jauges…), ou décris l'interface à l'IA qui écrit la page NUI et le client.lua. Tu la testes ici avant de l'envoyer sur le serveur.",
     examples: [
       "HUD en bas à gauche : vie, armure, faim et soif en jauges circulaires, style néon violet",
       "Menu de garage : liste des véhicules avec photo, plaque et bouton Sortir, s'ouvre avec /garage",
@@ -21,7 +21,7 @@ export const KIND_META: Record<CreationKind, { title: string; one: string; lead:
   script: {
     title: "Script Creator",
     one: "script",
-    lead: "Décris le script voulu : l'IA écrit fxmanifest, config, client et serveur pour ton framework. Les vérifications signalent les erreurs de syntaxe et les failles exploitables par les cheaters.",
+    lead: "Emboîte des blocs comme dans Scratch, ou décris le script à l'IA qui écrit fxmanifest, config, client et serveur pour ton framework. Les vérifications signalent les erreurs et les failles exploitables par les cheaters.",
     examples: [
       "Commande /repair qui répare le véhicule du joueur, réservée au groupe admin, avec un délai de 60 s",
       "Job livreur : prendre un colis au dépôt, le livrer à un point aléatoire, payé 250 $ côté serveur",
@@ -287,6 +287,32 @@ export const PROPS: { model: string; label: string; cat: string; w: number; d: n
 ];
 
 export const propOf = (model: string) => PROPS.find((p) => p.model.toLowerCase() === model.toLowerCase());
+
+/** Ready-made groups of props, placed together (offsets in metres from where they are dropped). */
+export const PROP_KITS: { key: string; label: string; objects: { model: string; x: number; y: number; heading?: number }[] }[] = [
+  { key: "roadblock", label: "Barrage de police", objects: [
+    { model: "prop_mp_barrier_02b", x: -2.3, y: 0 }, { model: "prop_mp_barrier_02b", x: 0, y: 0 }, { model: "prop_mp_barrier_02b", x: 2.3, y: 0 },
+    { model: "prop_roadcone02a", x: -4.2, y: 0.6 }, { model: "prop_roadcone02a", x: 4.2, y: 0.6 }, { model: "prop_worklight_03b", x: 0, y: -2.2, heading: 180 }
+  ] },
+  { key: "stall", label: "Stand de marché", objects: [
+    { model: "prop_gazebo_02", x: 0, y: 0 }, { model: "prop_table_03", x: 0, y: 0.8 }, { model: "prop_box_wood02a", x: -1.3, y: -0.9 },
+    { model: "prop_chair_02", x: 0.6, y: -0.5, heading: 180 }, { model: "prop_cs_cardbox_01", x: 1.4, y: -1 }
+  ] },
+  { key: "terrace", label: "Terrasse", objects: [
+    { model: "prop_table_04", x: -1.8, y: 0 }, { model: "prop_chair_01a", x: -1.8, y: 1.2, heading: 180 }, { model: "prop_chair_01a", x: -1.8, y: -1.2 },
+    { model: "prop_table_04", x: 1.8, y: 0 }, { model: "prop_chair_01a", x: 1.8, y: 1.2, heading: 180 }, { model: "prop_chair_01a", x: 1.8, y: -1.2 },
+    { model: "prop_pot_plant_01a", x: 0, y: 1.6 }
+  ] },
+  { key: "bbq", label: "Coin barbecue", objects: [
+    { model: "prop_bbq_1", x: 0, y: 1.6 }, { model: "prop_bench_01a", x: -1.6, y: -0.4, heading: 90 }, { model: "prop_bench_01a", x: 1.6, y: -0.4, heading: 270 },
+    { model: "prop_bin_01a", x: 2.6, y: 1.6 }, { model: "prop_speaker_06", x: -2.6, y: 1.6 }
+  ] },
+  { key: "worksite", label: "Chantier", objects: [
+    { model: "prop_barrier_work05", x: -2.7, y: 0 }, { model: "prop_barrier_work05", x: 0, y: 0 }, { model: "prop_barrier_work05", x: 2.7, y: 0 },
+    { model: "prop_generator_01a", x: -2, y: -2.5 }, { model: "prop_worklight_03b", x: 1.5, y: -2.5, heading: 180 }, { model: "prop_portaloo_01a", x: 4.5, y: -2.5 },
+    { model: "prop_roadcone02a", x: -4.6, y: 0 }, { model: "prop_roadcone02a", x: 4.6, y: 0 }
+  ] }
+];
 
 const num = (v: number, digits: number) => (Number.isFinite(v) ? Number(v.toFixed(digits)) : 0).toFixed(digits);
 

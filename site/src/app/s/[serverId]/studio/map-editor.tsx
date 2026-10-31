@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Crosshair, Magnet, Maximize, RotateCcw, RotateCw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { LIMITS, MODEL_RE, PROPS, propOf, type MapData, type MapObject } from "@/lib/studio-shared";
+import { Boxes, Copy, Crosshair, Magnet, Maximize, RotateCcw, RotateCw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { LIMITS, MODEL_RE, PROP_KITS, PROPS, propOf, type MapData, type MapObject } from "@/lib/studio-shared";
 
 /** Starting points with a ground altitude close enough for objects to be put on the ground. */
 export const PLACES_3D: { name: string; pos: [number, number, number] }[] = [
@@ -73,11 +73,35 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
     set([...data.objects, copy]);
     setSelected(copy.id);
   };
-  const add = (model: string) => {
+  /** Add a prop at a point (default: the middle of the view). */
+  const add = (model: string, at: [number, number] = [view[0] + view[2] / 2, -(view[1] + view[3] / 2)]) => {
     if (!MODEL_RE.test(model) || data.objects.length >= LIMITS.objects) return;
-    const o: MapObject = { id: newId(), model, x: fix(round(view[0] + view[2] / 2, step)), y: fix(round(-(view[1] + view[3] / 2), step)), z: 0, heading: 0, ground: true };
+    const o: MapObject = { id: newId(), model, x: fix(round(at[0], step)), y: fix(round(at[1], step)), z: 0, heading: 0, ground: true };
     set([...data.objects, o]);
     setSelected(o.id);
+  };
+  const addKit = (key: string, at: [number, number] = [view[0] + view[2] / 2, -(view[1] + view[3] / 2)]) => {
+    const kit = PROP_KITS.find((k) => k.key === key);
+    if (!kit) return;
+    const added = kit.objects.slice(0, LIMITS.objects - data.objects.length).map((o): MapObject => ({
+      id: newId(), model: o.model, x: fix(round(at[0] + o.x, step)), y: fix(round(at[1] + o.y, step)), z: 0, heading: o.heading ?? 0, ground: true
+    }));
+    if (!added.length) return;
+    set([...data.objects, ...added]);
+    setSelected(null);
+  };
+  // Drag from the catalog / kits onto the map.
+  const onDrop = (e: React.DragEvent) => {
+    const raw = e.dataTransfer.getData("application/x-fiverax-prop");
+    if (!raw) return;
+    e.preventDefault();
+    const at = toWorld(e.clientX, e.clientY);
+    if (raw.startsWith("kit:")) addKit(raw.slice(4), at);
+    else add(raw, at);
+  };
+  const dragProp = (value: string) => (e: React.DragEvent) => {
+    e.dataTransfer.setData("application/x-fiverax-prop", value);
+    e.dataTransfer.effectAllowed = "copy";
   };
 
   // ---- pointer: pan the view, or move an object ----
@@ -188,6 +212,8 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
           onPointerMove={onMove}
           onPointerUp={endDrag}
           onPointerCancel={() => { drag.current = null; }}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes("application/x-fiverax-prop")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }}
+          onDrop={onDrop}
         >
           <g className="med-grid">
             {grid.lines.map((l) =>
@@ -206,11 +232,16 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
             const w = p?.w ?? 1;
             const d = p?.d ?? 1;
             const on = o.id === selected;
+            // The label stays upright, under the rotated shape.
+            const rad = (o.heading * Math.PI) / 180;
+            const below = Math.abs((w / 2) * Math.sin(rad)) + Math.abs((d / 2) * Math.cos(rad));
             return (
-              <g key={o.id} transform={`translate(${o.x} ${-o.y}) rotate(${-o.heading})`} className="med-obj" data-on={on} onPointerDown={(e) => startDrag(e, o.id)}>
-                <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(w, d) * 0.15} fill={p ? CAT_COLORS[p.cat] ?? "#ddd" : "#9ca3af"} strokeWidth={px * (on ? 3 : 1)} />
-                <line x1={0} y1={0} x2={0} y2={-d / 2 - Math.max(0.3, d * 0.2)} strokeWidth={px * 2} />
-                {view[2] < 70 && <text y={d / 2 + px * 14} fontSize={px * 11} textAnchor="middle">{p?.label ?? o.model}</text>}
+              <g key={o.id} transform={`translate(${o.x} ${-o.y})`} className="med-obj" data-on={on} onPointerDown={(e) => startDrag(e, o.id)}>
+                <g transform={`rotate(${-o.heading})`}>
+                  <rect x={-w / 2} y={-d / 2} width={w} height={d} rx={Math.min(w, d) * 0.15} fill={p ? CAT_COLORS[p.cat] ?? "#ddd" : "#9ca3af"} strokeWidth={px * (on ? 3 : 1)} />
+                  <line x1={0} y1={0} x2={0} y2={-d / 2 - Math.max(0.3, d * 0.2)} strokeWidth={px * 2} />
+                </g>
+                {view[2] < 70 && <text y={below + px * 14} fontSize={px * 11} textAnchor="middle">{p?.label ?? o.model}</text>}
               </g>
             );
           })}
@@ -223,7 +254,7 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
         </div>
         <div className="med-north">N ↑</div>
         <div className="map-hint">
-          Glisse pour déplacer · molette pour zoomer · objet sélectionné : flèches (Maj = 1 m), R / Maj+R pour tourner, Suppr, Ctrl+D · grille {grid.minor} m · cercle = zone d&apos;apparition
+          Glisse un prop du catalogue sur la carte · glisse pour déplacer · molette pour zoomer · objet sélectionné : flèches (Maj = 1 m), R / Maj+R pour tourner, Suppr, Ctrl+D · grille {grid.minor} m · cercle = zone d&apos;apparition
         </div>
       </div>
 
@@ -290,6 +321,17 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
         )}
 
         <div className="map-card">
+          <b><Boxes size={13} style={{ verticalAlign: "-2px" }} /> Kits prêts à poser</b>
+          <div className="studio-examples">
+            {PROP_KITS.map((k) => (
+              <button key={k.key} type="button" className="perm" draggable onDragStart={dragProp(`kit:${k.key}`)} onClick={() => addKit(k.key)} title={`${k.objects.length} objets : clique (centre de la vue) ou glisse sur la carte`}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="map-card">
           <b>Catalogue <span className="muted" style={{ fontWeight: 400 }}>· {data.objects.length} / {LIMITS.objects} objets</span></b>
           <input className="field" placeholder="Chercher un prop" value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="pill-tabs" style={{ gap: 4 }}>
@@ -297,7 +339,7 @@ export default function MapEditor({ data, onChange, players, fitKey }: Props) {
           </div>
           <ul className="map-list" style={{ maxHeight: 260 }}>
             {catalog.map((p) => (
-              <li key={p.model} onClick={() => add(p.model)} title="Ajouter au centre de la vue">
+              <li key={p.model} draggable onDragStart={dragProp(p.model)} onClick={() => add(p.model)} title="Clique (centre de la vue) ou glisse sur la carte">
                 <i className="med-swatch" style={{ background: CAT_COLORS[p.cat] }} />
                 <span style={{ flex: 1, minWidth: 0 }}>{p.label}<br /><code className="muted" style={{ fontSize: 11 }}>{p.model}</code></span>
                 <small className="muted">{p.w}×{p.d} m</small>

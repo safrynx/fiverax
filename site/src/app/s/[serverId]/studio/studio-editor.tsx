@@ -1,15 +1,19 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Download, FilePlus2, History, Info, Pencil, Rocket, Save, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Code2, Download, FilePlus2, History, Info, Pencil, Puzzle, Rocket, Save, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import type { Creation, CreationData } from "@/lib/studio";
-import { checkFiles, cleanMap, FRAMEWORKS, isFilePath, KIND_META, mapFiles, type MapData, type StudioFile } from "@/lib/studio-shared";
+import { checkFiles, cleanMap, FRAMEWORKS, isFilePath, KIND_META, mapFiles, type Check, type MapData, type StudioFile } from "@/lib/studio-shared";
+import { blocksFiles, STARTER_BLOCKS } from "@/lib/studio-blocks";
+import { cleanUIDesign, DEFAULT_UI, uiFiles, type UIDesign } from "@/lib/studio-ui";
 import { formatDateTime } from "@/lib/format";
 import { describeApiError, useServerPaths, useUI } from "@/app/ui";
 import { useCommand } from "../use-command";
+import BlockEditor from "./block-editor";
 import CodeEditor from "./code-editor";
 import DeployTag from "./deploy-tag";
 import MapEditor from "./map-editor";
+import UIBuilder from "./ui-builder";
 import UIPreview from "./ui-preview";
 
 type Props = {
@@ -27,6 +31,10 @@ const SUGGESTIONS = {
 } as const;
 
 const SOURCE_LABEL = { ai: "IA", manual: "Modification", restore: "Restauration", create: "Création" } as const;
+const VISUAL_LABEL = { ui: "Simple", script: "Blocs", map: "" } as const;
+
+const firstTab = (c: Creation) =>
+  c.kind === "map" ? "map" : c.data.mode === "visual" ? "visual" : c.kind === "ui" ? "preview" : c.files[0] ? `file:${c.files[0].path}` : "checks";
 
 export default function StudioEditor({ initial, canDeploy, online, aiReady, players }: Props) {
   const router = useRouter();
@@ -39,7 +47,8 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
   const [files, setFiles] = useState<StudioFile[]>(initial.files);
   const [data, setData] = useState<CreationData>(initial.data);
   const [dirty, setDirty] = useState(false);
-  const [tab, setTab] = useState<string>(initial.kind === "ui" ? "preview" : initial.kind === "map" ? "map" : initial.files[0] ? `file:${initial.files[0].path}` : "checks");
+  const [tab, setTab] = useState<string>(() => firstTab(initial));
+  const [loadKey, setLoadKey] = useState(0);
   const [instruction, setInstruction] = useState("");
   const [generating, setGenerating] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -50,9 +59,26 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
   const kind = creation.kind;
   const meta = KIND_META[kind];
   const api = paths.api(`studio/${creation.id}`);
+  const visual = kind !== "map" && data.mode === "visual";
   const map: MapData = useMemo(() => cleanMap(data.map), [data.map]);
-  const shown = useMemo(() => (kind === "map" ? mapFiles(creation.name, map) : files), [kind, creation.name, map, files]);
-  const checks = useMemo(() => checkFiles(shown), [shown]);
+  const design: UIDesign = useMemo(() => cleanUIDesign(data.ui ?? DEFAULT_UI()), [data.ui]);
+  // Mapping, blocks and the simple UI builder generate their files (read-only); otherwise the files are the code.
+  const generated = useMemo((): { files: StudioFile[]; warnings: string[] } => {
+    if (kind === "map") return { files: mapFiles(creation.name, map), warnings: [] };
+    if (!visual) return { files, warnings: [] };
+    if (kind === "ui") return { files: uiFiles(creation.name, design), warnings: [] };
+    try {
+      return blocksFiles(creation.name, creation.framework, data.blocks ?? STARTER_BLOCKS);
+    } catch {
+      return { files: [], warnings: ["Trop de blocs : découpe ton script en plusieurs créations."] };
+    }
+  }, [kind, visual, creation.name, creation.framework, map, design, data.blocks, files]);
+  const shown = generated.files;
+  const readOnly = kind === "map" || visual;
+  const checks = useMemo(
+    (): Check[] => [...generated.warnings.map((message): Check => ({ level: "warn", file: null, message })), ...checkFiles(shown)],
+    [generated, shown]
+  );
   const errors = checks.filter((c) => c.level === "error").length;
   const html = shown.find((f) => f.path.endsWith("index.html"))?.content ?? shown.find((f) => f.path.endsWith(".html"))?.content ?? null;
 
@@ -61,7 +87,17 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
     setFiles(next.files);
     setData(next.data);
     setDirty(false);
+    setLoadKey((k) => k + 1);
   }, []);
+
+  /** What a save sends: the editor's data, and the files when they are the code. */
+  const payload = () => ({
+    ...(readOnly ? {} : { files }),
+    data: kind === "map" ? { map }
+      : !visual ? { ...data, mode: "code" as const }
+      : kind === "ui" ? { mode: "visual" as const, ui: design }
+      : { mode: "visual" as const, blocks: data.blocks ?? STARTER_BLOCKS }
+  });
 
   // Unsaved work: warn before leaving the page.
   useEffect(() => {
@@ -100,7 +136,7 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
     try {
       const body = await call(api, {
         method: "PUT",
-        body: JSON.stringify({ ...(kind === "map" ? {} : { files }), data: kind === "map" ? { map } : data, summary })
+        body: JSON.stringify({ ...payload(), summary })
       });
       if (!body) return false;
       load(body as unknown as Creation);
@@ -113,6 +149,15 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
   const generate = useCallback(async (text: string) => {
     const value = text.trim();
     if (value.length < 3) return;
+    if (visual) {
+      const what = kind === "script" ? "blocs" : "réglages";
+      const ok = await ask({
+        title: "Passer en mode code ?",
+        message: `L'IA écrit du code : la création quitte le mode ${VISUAL_LABEL[kind].toLowerCase()} et continue en code. Les ${what} actuels restent dans l'historique (Restaurer).`,
+        confirmLabel: "Continuer avec l'IA"
+      });
+      if (!ok) return;
+    }
     if (dirty && !(await save("Avant la demande à l'IA"))) return;
     setGenerating(Date.now());
     setNow(Date.now());
@@ -125,12 +170,12 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
       }
       const next = body.creation as Creation;
       load(next);
-      if (kind !== "map" && !tab.startsWith("file:") && tab !== "preview" && tab !== "checks") setTab(kind === "ui" ? "preview" : `file:${next.files[0]?.path}`);
+      if (kind !== "map" && !tab.startsWith("file:") && tab !== "preview" && tab !== "checks") setTab(firstTab(next));
       toast(String(body.summary ?? "C'est fait."), "ok");
     } finally {
       setGenerating(null);
     }
-  }, [api, dirty, files, data, map, kind, tab]);
+  }, [api, dirty, files, data, map, kind, tab, visual]);
 
   // Coming from "Créer avec l'IA": the description is sent right away, once.
   useEffect(() => {
@@ -173,12 +218,12 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
   async function rename() {
     const answer = await ask({ title: "Renommer", input: { label: "Nom", initial: creation.name, required: true } });
     if (!answer || answer.value.length < 2) return;
-    const body = await call(api, { method: "PUT", body: JSON.stringify({ name: answer.value.slice(0, 60), summary: `Renommée en « ${answer.value.slice(0, 60)} »` }) });
+    const body = await call(api, { method: "PUT", body: JSON.stringify({ ...(dirty ? payload() : {}), name: answer.value.slice(0, 60), summary: `Renommée en « ${answer.value.slice(0, 60)} »` }) });
     if (body) load(body as unknown as Creation);
   }
 
   async function changeFramework(framework: string) {
-    const body = await call(api, { method: "PUT", body: JSON.stringify({ framework, summary: `Framework : ${FRAMEWORKS.find((f) => f.key === framework)?.label}` }) });
+    const body = await call(api, { method: "PUT", body: JSON.stringify({ ...(dirty ? payload() : {}), framework, summary: `Framework : ${FRAMEWORKS.find((f) => f.key === framework)?.label}` }) });
     if (body) load(body as unknown as Creation);
   }
 
@@ -215,6 +260,34 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
     setData({ ...data, map: next });
     setDirty(true);
   };
+  const setBlocks = useCallback((blocks: unknown) => {
+    setData((d) => ({ ...d, blocks }));
+    setDirty(true);
+  }, []);
+  const setDesign = (ui: UIDesign) => {
+    setData({ ...data, ui });
+    setDirty(true);
+  };
+
+  /** Blocks / simple builder <-> code. Going to code starts from the generated files; going back replaces the code. */
+  async function switchMode(to: "visual" | "code") {
+    if (to === (visual ? "visual" : "code")) return;
+    const what = kind === "script" ? "blocs" : "réglages du mode simple";
+    if (to === "code") {
+      const ok = await ask({ title: "Passer en code ?", message: `Le code produit par les ${what} devient modifiable à la main. Les ${what} ne seront plus utilisés (ils restent dans l'historique).`, confirmLabel: "Passer en code" });
+      if (!ok) return;
+      setFiles(shown);
+      setData({ ...data, mode: "code" });
+      setTab(shown[0] ? `file:${shown[0].path}` : "checks");
+    } else {
+      const ok = await ask({ title: `Revenir aux ${what} ?`, message: `Les fichiers seront réécrits à partir des ${what} : le code écrit à la main ou par l'IA est remplacé (il reste dans l'historique).`, confirmLabel: "Revenir", danger: true });
+      if (!ok) return;
+      setData({ ...data, mode: "visual" });
+      setLoadKey((k) => k + 1);
+      setTab("visual");
+    }
+    setDirty(true);
+  }
 
   const openFile = tab.startsWith("file:") ? shown.find((f) => f.path === tab.slice(5)) ?? null : null;
   const history = [...creation.versions].reverse();
@@ -232,6 +305,14 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
           <div className="studio-meta">
             <code>{creation.resource}</code>
             <DeployTag deploy={creation.deploy} />
+            {kind !== "map" && (
+              <div className="seg" title="Mode d'édition">
+                <button type="button" data-on={visual} onClick={() => switchMode("visual")}>
+                  {kind === "script" ? <Puzzle size={13} /> : <Sparkles size={13} />}{VISUAL_LABEL[kind]}
+                </button>
+                <button type="button" data-on={!visual} onClick={() => switchMode("code")}><Code2 size={13} />Code</button>
+              </div>
+            )}
             {kind !== "map" && (
               <select className="field" style={{ width: "auto", padding: "3px 30px 3px 10px", fontSize: 12 }} value={creation.framework} onChange={(e) => changeFramework(e.target.value)} title="Framework visé par l'IA">
                 {FRAMEWORKS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
@@ -296,28 +377,37 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
 
         <div className="studio-main">
           <div className="studio-tabs">
-            {kind === "ui" && <button type="button" data-on={tab === "preview"} onClick={() => setTab("preview")}>Aperçu</button>}
+            {visual && <button type="button" data-on={tab === "visual"} onClick={() => setTab("visual")}>{kind === "script" ? "Blocs" : "Créateur"}</button>}
+            {kind === "ui" && !visual && <button type="button" data-on={tab === "preview"} onClick={() => setTab("preview")}>Aperçu</button>}
             {kind === "map" && <button type="button" data-on={tab === "map"} onClick={() => setTab("map")}>Éditeur</button>}
             {shown.map((f) => (
               <button key={f.path} type="button" data-on={tab === `file:${f.path}`} onClick={() => setTab(`file:${f.path}`)}>{f.path}</button>
             ))}
-            {kind !== "map" && <button type="button" title="Nouveau fichier" onClick={addFile}><FilePlus2 size={13} /></button>}
+            {!readOnly && <button type="button" title="Nouveau fichier" onClick={addFile}><FilePlus2 size={13} /></button>}
             <button type="button" data-on={tab === "checks"} onClick={() => setTab("checks")} data-tone={errors ? "bad" : checks.length ? "warn" : "ok"}>
               Vérifications{checks.length ? ` · ${checks.length}` : ""}
             </button>
           </div>
 
-          {tab === "preview" && kind === "ui" && <UIPreview html={html} resource={creation.resource} tests={data.tests ?? []} />}
+          {tab === "visual" && visual && kind === "script" && (
+            <BlockEditor value={data.blocks ?? STARTER_BLOCKS} onChange={setBlocks} loadKey={loadKey} warnings={generated.warnings} players={players} />
+          )}
+          {tab === "visual" && visual && kind === "ui" && <UIBuilder design={design} onChange={setDesign} name={creation.name} resource={creation.resource} />}
+          {tab === "preview" && kind === "ui" && !visual && <UIPreview html={html} resource={creation.resource} tests={data.tests ?? []} />}
           {tab === "map" && kind === "map" && <MapEditor data={map} onChange={setMap} players={players} fitKey={creation.versions.find((v) => v.source !== "manual")?.id ?? 0} />}
           {openFile && (
             <>
-              {kind === "map" && <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>Fichier généré à partir de l&apos;éditeur (lecture seule).</p>}
-              {kind !== "map" && openFile.path !== "fxmanifest.lua" && (
+              {readOnly && (
+                <p className="muted" style={{ margin: "0 0 8px", fontSize: 12 }}>
+                  Fichier généré à partir {kind === "map" ? "de l'éditeur" : kind === "script" ? "des blocs" : "du créateur"} (lecture seule){visual ? " : passe en mode Code pour le modifier à la main." : "."}
+                </p>
+              )}
+              {!readOnly && openFile.path !== "fxmanifest.lua" && (
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
                   <button type="button" className="linkish" onClick={() => deleteFile(openFile.path)}><X size={11} /> Supprimer ce fichier</button>
                 </div>
               )}
-              <CodeEditor value={openFile.content} readOnly={kind === "map"} onChange={(v) => setFile(openFile.path, v)} />
+              <CodeEditor value={openFile.content} readOnly={readOnly} onChange={(v) => setFile(openFile.path, v)} />
             </>
           )}
           {tab === "checks" && (
@@ -329,7 +419,7 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
                   <div>{c.file && <code>{c.file}</code>} {c.message}</div>
                 </div>
               ))}
-              {checks.some((c) => c.level !== "info") && aiReady && kind !== "map" && (
+              {checks.some((c) => c.level !== "info") && aiReady && !readOnly && (
                 <button className="btn" disabled={generating !== null} onClick={() => generate(`Corrige ces problèmes :\n${checks.filter((c) => c.level !== "info").map((c) => `- ${c.file ?? "ressource"} : ${c.message}`).join("\n")}`)}>
                   <Wand2 size={14} />Corriger avec l&apos;IA
                 </button>

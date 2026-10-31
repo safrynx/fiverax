@@ -1,9 +1,12 @@
+import { chatJson } from "./ai";
 import { auditStmt } from "./audit";
 import { db, stmt } from "./db";
 import {
   cleanFiles, cleanMap, cleanTests, EMPTY_MAP, filesHash, mapFiles, PROPS, resourceSlug, RESOURCE_RE,
   type CreationKind, type Framework, type MapData, type StudioFile, type UITest
 } from "./studio-shared";
+import { blocksFiles, cleanBlocks, STARTER_BLOCKS } from "./studio-blocks";
+import { cleanUIDesign, UI_TEMPLATES, uiFiles, uiTests, type UIDesign } from "./studio-ui";
 
 /**
  * Studio IA: UI, scripts and mappings made from the panel. A creation is a FiveM resource (its files) plus the data
@@ -15,7 +18,11 @@ import {
 
 export type Actor = { discordId: string; username?: string | null };
 
-export type CreationData = { tests?: UITest[]; map?: MapData };
+/**
+ * `mode: "visual"`: the script is made of blocks, the UI with the simple builder; its files are generated from
+ * `blocks` / `ui` (like a mapping's from `map`). Without it, the files are the code (written by hand or by the AI).
+ */
+export type CreationData = { tests?: UITest[]; map?: MapData; mode?: "visual" | "code"; blocks?: unknown; ui?: UIDesign };
 
 export type DeployState = { status: "none" | "pending" | "sent" | "done" | "failed" | "expired"; message: string | null; at: string | null; current: boolean };
 
@@ -109,13 +116,21 @@ export async function getCreation(serverId: string, id: number): Promise<Creatio
 
 export class StudioError extends Error {}
 
-/** Files of a creation from its data: a mapping's files are generated, the others are what was written. */
-function normalise(kind: CreationKind, name: string, files: StudioFile[], data: CreationData): { files: StudioFile[]; data: CreationData } {
+/** Files of a creation from its data: a mapping's or a visual creation's files are generated, the others are what was written. */
+function normalise(kind: CreationKind, name: string, framework: Framework, files: StudioFile[], data: CreationData): { files: StudioFile[]; data: CreationData } {
   if (kind === "map") {
     const map = cleanMap(data.map);
     return { files: mapFiles(name, map), data: { map } };
   }
   try {
+    if (kind === "script" && data.mode === "visual") {
+      const blocks = cleanBlocks(data.blocks);
+      return { files: blocksFiles(name, framework, blocks).files, data: { mode: "visual", blocks } };
+    }
+    if (kind === "ui" && data.mode === "visual") {
+      const ui = cleanUIDesign(data.ui);
+      return { files: uiFiles(name, ui), data: { mode: "visual", ui, tests: uiTests(ui) } };
+    }
     return { files: cleanFiles(files), data: kind === "ui" ? { tests: cleanTests(data.tests) } : {} };
   } catch (error) {
     throw new StudioError(error instanceof Error ? error.message : "invalid_files");
@@ -125,13 +140,18 @@ function normalise(kind: CreationKind, name: string, files: StudioFile[], data: 
 export async function createCreation(
   serverId: string,
   actor: Actor,
-  input: { kind: CreationKind; name: string; resource?: string; framework: Framework; center?: [number, number, number] }
+  input: { kind: CreationKind; name: string; resource?: string; framework: Framework; center?: [number, number, number]; visual?: boolean; template?: string }
 ): Promise<number> {
   const resource = input.resource || resourceSlug(input.name);
   if (!RESOURCE_RE.test(resource)) throw new StudioError("invalid_resource");
   const taken = await db.get("SELECT 1 FROM studio_creations WHERE server_id = ? AND resource = ?", [serverId, resource]);
   if (taken) throw new StudioError("resource_taken");
-  const start = normalise(input.kind, input.name, [], input.kind === "map" ? { map: { ...EMPTY_MAP, center: input.center ?? EMPTY_MAP.center } } : {});
+  const startData: CreationData =
+    input.kind === "map" ? { map: { ...EMPTY_MAP, center: input.center ?? EMPTY_MAP.center } }
+    : !input.visual ? {}
+    : input.kind === "script" ? { mode: "visual", blocks: STARTER_BLOCKS }
+    : { mode: "visual", ui: (UI_TEMPLATES.find((t) => t.key === input.template) ?? UI_TEMPLATES[0]).make() };
+  const start = normalise(input.kind, input.name, input.framework, [], startData);
   const now = iso();
   const [insert] = await db.batch([
     stmt(
@@ -161,11 +181,12 @@ export async function saveCreation(
   const current = await getCreation(serverId, id);
   if (!current) throw new StudioError("unknown_creation");
   const name = change.name?.trim() || current.name;
-  const next = normalise(current.kind, name, change.files ?? current.files, { ...current.data, ...(change.data ?? {}) });
+  const framework = change.framework ?? current.framework;
+  const next = normalise(current.kind, name, framework, change.files ?? current.files, { ...current.data, ...(change.data ?? {}) });
   const now = iso();
   await db.batch([
     stmt("UPDATE studio_creations SET name = ?, framework = ?, files_json = ?, data_json = ?, updated_at = ? WHERE server_id = ? AND id = ?", [
-      name, change.framework ?? current.framework, JSON.stringify(next.files), JSON.stringify(next.data), now, serverId, id
+      name, framework, JSON.stringify(next.files), JSON.stringify(next.data), now, serverId, id
     ]),
     stmt(
       `INSERT INTO studio_versions (creation_id, server_id, source, prompt, summary, files_json, data_json, author_discord_id, author_name, created_at)
@@ -306,35 +327,12 @@ export function applyFiles(current: StudioFile[], changes: Map<string, string | 
   return [...byPath.entries()].map(([path, content]) => ({ path, content }));
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function chat(system: string, user: string): Promise<string> {
-  const base = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
-  const model = process.env.AI_CODE_MODEL || process.env.AI_MODEL || "llama-3.3-70b-versatile";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${process.env.AI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        max_tokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000,
-        response_format: { type: "json_object" },
-        messages: [{ role: "system", content: system }, { role: "user", content: user }]
-      }),
-      signal: AbortSignal.timeout(110_000)
-    });
-    if (res.status === 429 && attempt === 0) {
-      await sleep(8000);
-      continue;
-    }
-    if (!res.ok) throw new StudioError(`ai_http_${res.status}`);
-    const data = (await res.json()) as { choices?: { message?: { content?: string }; finish_reason?: string }[] };
-    const choice = data.choices?.[0];
-    if (choice?.finish_reason === "length") throw new StudioError("ai_truncated");
-    return choice?.message?.content ?? "";
+  try {
+    return await chatJson(system, user, { model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000 });
+  } catch (error) {
+    throw new StudioError(error instanceof Error ? error.message : "ai_error");
   }
-  throw new StudioError("ai_rate_limited");
 }
 
 /** Context of the current files for the model, newest first, within a budget. */
@@ -374,7 +372,8 @@ export async function generateCreation(serverId: string, actor: Actor, id: numbe
   const reply = parseAIReply(await chat(systemPrompt(current.kind, current.framework), user));
   if (!reply?.files) throw new StudioError("ai_unreadable");
   const files = applyFiles(current.files, reply.files);
-  const data: CreationData = current.kind === "ui" ? { tests: reply.tests ?? current.data.tests ?? [] } : {};
+  // The AI writes code: a creation made with blocks / the simple builder goes on as code from here.
+  const data: CreationData = current.kind === "ui" ? { mode: "code", tests: reply.tests ?? current.data.tests ?? [] } : { mode: "code" };
   const creation = await saveCreation(serverId, actor, id, { files, data }, { source: "ai", prompt: instruction, summary: reply.summary });
   return { creation, summary: reply.summary };
 }

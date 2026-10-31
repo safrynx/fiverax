@@ -31,7 +31,13 @@ const saveSchema = z.object({
   name: z.string().trim().min(2).max(60).optional(),
   framework: z.enum(FRAMEWORKS.map((f) => f.key) as [string, ...string[]]).optional(),
   files: z.array(z.object({ path: z.string().max(120), content: z.string().max(LIMITS.fileBytes) })).max(LIMITS.files).optional(),
-  data: z.object({ tests: z.array(z.unknown()).max(12).optional(), map: z.unknown().optional() }).optional(),
+  data: z.object({
+    tests: z.array(z.unknown()).max(12).optional(),
+    map: z.unknown().optional(),
+    mode: z.enum(["visual", "code"]).optional(),
+    blocks: z.unknown().optional(),
+    ui: z.unknown().optional()
+  }).optional(),
   summary: z.string().max(300).optional()
 });
 

@@ -13,10 +13,11 @@
 --   add_ace group.admin fiverax.bypass allow          # staff never flagged by the anticheat
 --   set fiverax_console 0                             # optional: refuse console commands from the panel
 --   set fiverax_deploy 0                              # optional: refuse Studio deployments from the panel
+--   set fiverax_audit_code 0                          # optional: audit without ever sending code (see audit.js)
 --   ensure screenshot-basic                           # optional: screenshots analysed by the AI
 --   ensure fiverax_agent
 
-local VERSION = '3.2.0'
+local VERSION = '3.3.0'
 local RESOURCE = GetCurrentResourceName()
 
 -- The 1.x convars (gtasun_staff_api_url pointed at /api/fivem) still work.
@@ -458,7 +459,11 @@ local handlers = {
         ExecuteCommand(p.command)
         return true, 'Commande exécutée'
     end,
-    deploy = deploy
+    deploy = deploy,
+    audit = function(p)
+        TriggerEvent('fiverax:audit', p.scanId) -- audit.js does the collection
+        return true, 'Scan lancé'
+    end
 }
 
 local function run(command)

@@ -149,11 +149,15 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "nothing_to_restore": return "Rien à rendre : les rôles ont déjà été rendus.";
     case "unknown_screenshot": return "Capture introuvable (supprimée après 30 jours).";
     case "validation": return "Valeurs invalides : vérifie le formulaire.";
+    case "audit_running": return "Un scan est déjà en cours.";
+    case "unknown_scan": return "Scan introuvable (les 30 derniers sont gardés).";
+    case "unknown_finding": return "Problème introuvable dans ce rapport.";
     case "resource_taken": return "Une création porte déjà ce nom de ressource sur ce serveur : choisis-en un autre.";
     case "invalid_resource": return "Nom de ressource invalide (minuscules, chiffres, _ et -, 3 à 48 caractères).";
     case "unknown_creation": return "Création introuvable (supprimée ?).";
     case "unknown_version": return "Version introuvable.";
     case "nothing_to_deploy": return "Rien à déployer : la création n'a encore aucun fichier.";
+    case "blocks_too_large": return "Trop de blocs : découpe ton script en plusieurs créations.";
     case "too_many_files": return "Trop de fichiers (25 au maximum).";
     case "file_too_large":
     case "files_too_large": return "Fichiers trop lourds (200 Ko par fichier, 400 Ko au total).";

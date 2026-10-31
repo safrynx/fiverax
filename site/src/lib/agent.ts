@@ -309,6 +309,8 @@ export const COMMANDS = {
   screen: { permission: "screenshot", schema: z.object({ target }) },
   freeze: { permission: "player_kick", schema: z.object({ target, on: z.boolean() }) },
   console: { permission: "console", schema: z.object({ command: text(500) }) },
+  /** Start the server audit (audit.js of the agent): it sends its inventory to /api/fivem/agent/audit. */
+  audit: { permission: "security_config", schema: z.object({ scanId: z.number().int().positive() }) },
   /** Write a Studio creation into its own resource folder, then (re)start it. Only queued by the studio API. */
   deploy: {
     permission: "studio_deploy",
@@ -332,7 +334,8 @@ const AUDIT_ACTION: Record<CommandKind, string> = {
   screen: "player_screen",
   freeze: "player_freeze",
   console: "console_command",
-  deploy: "studio_deploy"
+  deploy: "studio_deploy",
+  audit: "audit_run"
 };
 
 type Actor = { discordId: string; username?: string | null };
@@ -350,6 +353,7 @@ export async function enqueueCommand(
 ): Promise<number> {
   const details =
     kind === "refresh" ? { action: "refresh" }
+    : kind === "audit" ? {}
     : kind === "deploy" ? { resource: payload.resource, files: Array.isArray(payload.files) ? payload.files.length : 0 }
     : { ...payload, player: context.playerName ?? undefined };
   const [insert] = await db.batch([

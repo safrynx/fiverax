@@ -47,7 +47,8 @@ export function previewDocument(html: string, resource: string): string {
 
 type Log = { at: string; kind: "nui" | "error" | "sent"; text: string };
 
-export default function UIPreview({ html, resource, tests }: { html: string | null; resource: string; tests: UITest[] }) {
+/** `onLoadSend`: messages sent (silently) each time the page loads, e.g. to keep a menu open while it is being built. */
+export default function UIPreview({ html, resource, tests, onLoadSend }: { html: string | null; resource: string; tests: UITest[]; onLoadSend?: unknown[] }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
@@ -113,6 +114,7 @@ export default function UIPreview({ html, resource, tests }: { html: string | nu
             title="Aperçu NUI"
             sandbox="allow-scripts"
             srcDoc={doc}
+            onLoad={() => onLoadSend?.forEach((m) => frame.current?.contentWindow?.postMessage(m, "*"))}
             style={{ width: 1920, height: 1080, transform: `scale(${scale})`, colorScheme: "normal" }}
           />
         ) : (
