@@ -58,6 +58,17 @@ Renseigner `FIVEM_DB_URL` (+ `FIVEM_DB_TABLE`, `FIVEM_DB_DISCORD_COLUMN`, `FIVEM
 - `src/app/api/bot/*` : API réservée au bot (`servers`, `sync`, `member`, `voice`, `heartbeat`, `playtime`, `tick`, `shutdown`), authentifiée par `BOT_API_TOKEN`
 - `../fivem/gtasun_staff_agent` : ressource FiveM (à installer sur le serveur FiveM)
 
+## Boutique Tebex
+Section « Boutique Tebex » de chaque serveur, reliée uniquement à Tebex. Permissions : `shop_view` (voir), `shop_manage` (paiements, catalogue, bans boutique), `shop_promos` (codes promo, cartes cadeaux) ; les réglages sont réservés aux propriétaires.
+- **Réglages boutique** : clé secrète du serveur de jeu Tebex (vérifiée auprès de Tebex, stockée chiffrée AES-256-GCM), token public (catalogue, API Headless), adresse du webhook à coller dans Tebex > Developers > Webhooks avec son secret, alertes Discord (ventes / problèmes).
+- **Ventes** : CA 30 j / 7 j, panier moyen, remboursements et litiges, CA par jour, meilleures ventes, objectifs communautaires, soldes, flux des webhooks (filtrable). Calculé depuis les webhooks reçus (`tebex_events`, gardés 1 an, sans e-mail ni IP).
+- **Paiements** : liste paginée (Plugin API), fiche avec notes, statut (remboursé / chargeback / payé), paiement manuel (donner des packages).
+- **Catalogue** : catégories et packages ; renommer, changer le prix, retirer / remettre en vente, lien d'achat direct pour un joueur.
+- **Promotions** : codes promo (création, suppression) et cartes cadeaux (création, recharge, annulation, vérification).
+- **Clients** : recherche par pseudo / ID Cfx.re (total dépensé, taux de chargeback, paiements, packages actifs), bans du webstore, file des commandes en attente (lecture seule : la ressource Tebex officielle du serveur FiveM livre les achats).
+- **Store Creator** (permission `store_edit`) : la boutique publique du serveur, `/store/<adresse>`. Deux modes sur le même modèle : des blocs (15 types, 6 thèmes, aperçu ordinateur / mobile) ou l'IA, qui reçoit le catalogue et renvoie un design JSON, jamais du code. Le brouillon s'enregistre tout seul, « Publier » le met en ligne, l'Historique garde les 40 dernières versions. La page lit le catalogue (token public), les objectifs (clé secrète), les derniers achats (webhooks) et les joueurs en ligne (agent). Paiement par l'API Headless : panier Tebex, connexion Cfx.re, codes, puis la fenêtre de paiement Tebex.js. Les prix viennent toujours de Tebex, le design ne garde que des IDs ; liens https uniquement, aucun HTML injecté. `/store/<adresse>?draft=1` montre le brouillon à l'équipe.
+- Un acheteur est relié à sa fiche joueur par son compte Cfx.re (identifiant `fivem:`) ; ses achats apparaissent sur sa fiche. Toutes les actions vont dans les Logs (groupe « Boutique »).
+
 ## Vérifications
 ```bash
 npm run typecheck

@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { tebexErrorMessage } from "@/lib/tebex-shared";
 
 type AskInput = { label: string; placeholder?: string; required?: boolean; multiline?: boolean; initial?: string };
 export type AskOptions = { title: string; message?: string; confirmLabel?: string; danger?: boolean; input?: AskInput };
@@ -112,7 +113,7 @@ export function useServerPaths() {
 }
 
 /** Shared helper: turn an API error response into a readable French message. */
-export function describeApiError(data: { error?: string; discordStatus?: number; permission?: string }, status: number): string {
+export function describeApiError(data: { error?: string; discordStatus?: number; permission?: string; message?: string }, status: number): string {
   switch (data.error) {
     case "discord_role_update_failed":
       return data.discordStatus === 403
@@ -166,6 +167,7 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "ai_truncated": return "La réponse de l'IA a été coupée (trop longue) : demande une modification plus petite, ou augmente AI_CODE_MAX_TOKENS.";
     case "ai_rate_limited": return "Limite du service IA atteinte : réessaie dans une minute.";
     default:
+      if (data.error?.startsWith("tebex_")) return tebexErrorMessage(data.error, data.message);
       if (data.error?.startsWith("ai_http_")) return `Le service IA a refusé la demande (code ${data.error.slice(8)}).`;
       return `Erreur : ${data.error ?? status}`;
   }

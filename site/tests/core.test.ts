@@ -474,7 +474,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 19);
+  assert.equal(Number(before), 21);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -1625,4 +1625,205 @@ test("audit flow: inventory without code, only unknown files sent, hashes checke
   assert.equal((await m.audit.latestReport(SA))!.id, scanId);
   await assert.rejects(m.audit.receiveFiles(SA, { scanId, files: [] }), /unknown_scan/); // finished scans accept nothing
   assert.equal(m.agent.COMMANDS.audit.permission, "security_config");
+});
+
+test("tebex: secrets sealed with AES-GCM, signature as Tebex computes it, errors mapped", async () => {
+  const t = await import("../src/lib/tebex");
+  const sealed = t.encryptSecret("abc123secret");
+  assert.notEqual(sealed, t.encryptSecret("abc123secret")); // random IV
+  assert.equal(t.decryptSecret(sealed), "abc123secret");
+  assert.equal(t.decryptSecret(sealed.slice(0, -2) + "xx"), null); // altered
+  assert.equal(t.decryptSecret("garbage"), null);
+  const crypto = await import("node:crypto");
+  const body = '{"id":"x","type":"payment.completed"}';
+  const expected = crypto.createHmac("sha256", "whsec").update(crypto.createHash("sha256").update(body).digest("hex")).digest("hex");
+  assert.equal(t.tebexSignature(body, "whsec"), expected);
+  assert.equal(t.verifyTebexSignature(body, expected.toUpperCase(), "whsec"), true);
+  assert.equal(t.verifyTebexSignature(body + " ", expected, "whsec"), false);
+  assert.equal(t.verifyTebexSignature(body, null, "whsec"), false);
+  assert.deepEqual([403, 404, 422, 429, 500].map(t.tebexError), ["tebex_bad_secret", "tebex_not_found", "tebex_rejected", "tebex_rate_limited", "tebex_http_500"]);
+  const shared = await import("../src/lib/tebex-shared");
+  assert.equal(shared.formatMoney("12.5", "EUR").replace(/\s/g, " "), "12,50 €");
+  assert.equal(shared.paymentStatusMeta("Chargeback").tone, "danger");
+  assert.equal(shared.shopConfigSchema.safeParse({ alerts: { webhookUrl: "https://evil.example/x" } }).success, false);
+});
+
+test("tebex webhooks: validation echoed, signature required, personal data dropped, duplicates ignored, figures and alerts", async () => {
+  const t = await import("../src/lib/tebex");
+  const actor = { discordId: A, username: "Alice" };
+  assert.deepEqual(await t.saveShopConfig(S, actor, { webhookSecret: "whsec_test_1234" }), { ok: true, account: null });
+  const settings = await t.getShopSettings(S);
+  assert.equal(settings.configured, false); // no Plugin API secret yet
+  assert.equal(settings.hasWebhookSecret, true);
+  const key = settings.webhookKey as string;
+  assert.ok(key && key.length >= 16);
+
+  const send = (hook: object, secret = "whsec_test_1234") => {
+    const raw = JSON.stringify(hook);
+    return t.receiveWebhook(key, raw, t.tebexSignature(raw, secret));
+  };
+  assert.deepEqual(await t.receiveWebhook(key, JSON.stringify({ id: "v-1", type: "validation.webhook", subject: {} }), null), { status: 200, body: { id: "v-1" } });
+  assert.equal((await t.receiveWebhook("nope-nope-nope-nope", "{}", null)).status, 404);
+
+  const now = new Date();
+  const payment = (id: string, type: string, amount: number, product: string) => ({
+    id, type, date: now.toISOString(),
+    subject: {
+      transaction_id: `tbx-${id}`, status: { id: 1, description: "Complete" },
+      price_paid: { amount, currency: "EUR" }, payment_method: { name: "PayPal" },
+      customer: { first_name: "Jean", email: "jean@example.com", ip: "1.2.3.4", username: { id: "4242", username: "Jeannot" }, country: "FR" },
+      products: [{ id: 7, name: product, quantity: 1, paid_price: { amount, currency: "EUR" } }], coupons: [{ code: "NOEL" }]
+    }
+  });
+  assert.equal((await send(payment("p1", "payment.completed", 10, "VIP"), "wrong-secret")).status, 401);
+  assert.deepEqual((await send(payment("p1", "payment.completed", 10, "VIP"))).body, { ok: true, duplicate: false });
+  assert.deepEqual((await send(payment("p1", "payment.completed", 10, "VIP"))).body, { ok: true, duplicate: true });
+  await send(payment("p2", "payment.completed", 25, "VIP"));
+  await send(payment("p3", "payment.refunded", 10, "VIP"));
+  await send({ id: "r1", type: "recurring-payment.ended", date: now.toISOString(), subject: { reference: "tbx-r-1", status: { description: "Cancelled" }, price: { amount: 5, currency: "EUR" }, initial_payment: payment("x", "", 5, "Abo").subject } });
+
+  const stored = await db.get<Record<string, string>>("SELECT * FROM tebex_events WHERE id = 'p1'");
+  assert.equal(stored?.customer_name, "Jeannot");
+  assert.equal(stored?.customer_id, "4242");
+  assert.ok(!JSON.stringify(stored).includes("jean@example.com") && !JSON.stringify(stored).includes("1.2.3.4"));
+
+  const o = await t.shopOverview(S, now);
+  assert.equal(o.currency, "EUR");
+  assert.deepEqual([o.revenue30, o.refunded30, o.orders30, o.average30, o.customers30, o.problems30], [35, 10, 2, 17.5, 1, 2]);
+  assert.deepEqual(o.topPackages[0], { name: "VIP", quantity: 2, amount: 35 });
+  assert.equal(o.daily.length, 30);
+  assert.equal(o.daily[29].amount, 35);
+  assert.equal((await t.listShopEvents(S, { family: "problems" })).length, 2);
+  assert.equal((await t.eventsForTransaction(S, "tbx-p1")).length, 1);
+  assert.equal((await t.shopEventsForPlayer(S, ["license:x", "fivem:4242"])).length, 4);
+
+  const alerts = { webhookUrl: "https://discord.com/api/webhooks/1/x", purchases: false, problems: true };
+  assert.equal(t.shouldAlertShop(alerts, "payment.completed"), false);
+  assert.equal(t.shouldAlertShop(alerts, "payment.dispute.opened"), true);
+  assert.equal(t.shouldAlertShop(alerts, "payment.dispute.won"), false);
+  assert.equal(t.shouldAlertShop({ ...alerts, webhookUrl: null }, "payment.refunded"), false);
+
+  const rotated = await t.rotateWebhookKey(S, actor);
+  assert.equal((await t.receiveWebhook(key, "{}", null)).status, 404); // the old address stops working
+  assert.equal((await t.getShopSettings(S)).webhookKey, rotated);
+});
+
+test("store design: one cleaner for editor and AI (no HTML, https links only, bounded values, unique ids)", async () => {
+  const sd = await import("../src/lib/store-design");
+  const d = sd.cleanStoreDesign({
+    preset: "neon",
+    theme: { accent: "red", radius: 99, font: "Comic Sans", caps: "yes" },
+    brand: { name: "<b>X</b>".repeat(30), logo: "javascript:alert(1)", discord: "https://discord.gg/abc", connect: "connect cfx.re/join/AbC123" },
+    blocks: [
+      { id: "same", type: "hero", p: { title: "Salut", image: "http://insecure.example/x.png", size: "huge" } },
+      { id: "same", type: "featured", p: { packageId: "12" } },
+      { type: "evil", p: {} },
+      { type: "faq", p: { items: [{ q: "Q", a: "R", extra: "x" }] } },
+      { type: "categories", p: { categoryIds: [3, 3, -1, "4"], columns: 9 } }
+    ],
+    legal: { terms: "https://ex.com/cgv" }
+  });
+  const neon = sd.PRESETS.find((p) => p.key === "neon")!.theme;
+  assert.equal(d.theme.accent, neon.accent); // invalid colour -> the preset's
+  assert.equal(d.theme.radius, 28);
+  assert.equal(d.theme.font, neon.font);
+  assert.equal(d.theme.caps, neon.caps);
+  assert.equal(d.brand.name.length, 60);
+  assert.equal(d.brand.logo, "");
+  assert.equal(d.brand.discord, "https://discord.gg/abc");
+  assert.equal(sd.connectLink(d.brand.connect), "fivem://connect/cfx.re/join/abc123");
+  assert.deepEqual(d.blocks.map((b) => b.type), ["hero", "featured", "faq", "categories"]);
+  assert.equal(new Set(d.blocks.map((b) => b.id)).size, 4);
+  assert.equal(d.blocks[0].p.image, "");
+  assert.equal(d.blocks[0].p.size, "lg");
+  assert.equal(d.blocks[1].p.packageId, 12);
+  assert.deepEqual(d.blocks[2].p.items, [{ q: "Q", a: "R" }]);
+  assert.deepEqual([d.blocks[3].p.categoryIds, d.blocks[3].p.columns], [[3, 4], 4]);
+  assert.equal(d.legal.terms, "https://ex.com/cgv");
+  assert.equal(d.branding, true);
+
+  assert.equal(sd.connectLink("play.monserveur.fr:30120"), "fivem://connect/play.monserveur.fr:30120");
+  assert.equal(sd.connectLink("javascript:alert(1)"), "");
+  assert.deepEqual(["gta-sun", "ab", "admin", "a--b", "-x-", "Shop"].map(sd.isValidStoreSlug), [true, false, false, false, false, false]);
+  assert.equal(sd.htmlToText("<p>Le <b>VIP</b></p><ul><li>Voiture</li><li>Skin &amp; arme</li></ul><script>x</script>"), "Le VIP\n• Voiture\n• Skin & arme\nx");
+
+  const pruned = sd.pruneDesign(d, { packages: new Set([5]), categories: new Set([4]), goals: new Set() });
+  assert.equal(pruned.blocks[1].p.packageId, null);
+  assert.deepEqual(pruned.blocks[3].p.categoryIds, [4]);
+
+  const starter = sd.starterDesign("sunset", { name: "Demo", firstPackageId: 7, hasGoals: true });
+  assert.equal(starter.preset, "sunset");
+  assert.deepEqual(starter.blocks.map((b) => b.type), ["hero", "server", "featured", "categories", "features", "goal", "recent", "faq"]);
+  assert.equal(starter.blocks[2].p.packageId, 7);
+});
+
+test("store creator: draft, publish, address, versions, AI reply, checkout items", async () => {
+  const store = await import("../src/lib/store");
+  const sd = await import("../src/lib/store-design");
+  const created = await m.servers.createServer({ name: "Shop RP", guildId: null, createdBy: A });
+  assert.ok(created.ok);
+  const server = created.server;
+  const actor = { discordId: A, username: "Alice" };
+  const data = { ...sd.EMPTY_STORE_DATA, categories: [{ id: 1, name: "VIP", description: "", packages: [
+    { id: 10, name: "VIP Or", description: "", image: "", price: 15, basePrice: 15, discount: 0, currency: "EUR", type: "single", quantity: false, categoryId: 1, expires: false },
+    { id: 11, name: "Argent", description: "", image: "", price: 5, basePrice: 5, discount: 0, currency: "EUR", type: "single", quantity: true, categoryId: 1, expires: false }
+  ] }] };
+
+  const site = await store.ensureStoreSite(server, data);
+  assert.equal(site.slug, server.id);
+  assert.equal(site.published, null);
+  assert.equal(site.dirty, true);
+  assert.equal(site.draft.blocks.find((b) => b.type === "featured")?.p.packageId, 10); // middle price of the first category
+  assert.equal(store.featuredPick({ ...data, recent: [{ name: "Bob", item: "Argent", at: new Date().toISOString() }] }), 11); // most bought first
+  assert.equal((await store.ensureStoreSite(server, data)).slug, site.slug); // created once
+
+  assert.equal(await store.getPublicStore(site.slug), null); // not published yet
+  const edited = { ...site.draft, brand: { ...site.draft.brand, name: "Ma Boutique" } };
+  const saved = await store.saveDraft(server.id, actor, edited);
+  assert.equal(saved.draft.brand.name, "Ma Boutique");
+  const published = await store.publishStore(server.id, actor);
+  assert.equal(published.dirty, false);
+  assert.ok(published.publishedAt);
+  const pub = await store.getPublicStore(site.slug);
+  assert.equal(pub?.design.brand.name, "Ma Boutique");
+  assert.equal(pub?.draft, false);
+
+  await store.saveDraft(server.id, actor, { ...edited, brand: { ...edited.brand, name: "Brouillon" } });
+  assert.equal((await store.getPublicStore(site.slug))?.design.brand.name, "Ma Boutique"); // visitors still see the published one
+  assert.equal((await store.getPublicStore(site.slug, { draft: true }))?.design.brand.name, "Brouillon");
+  assert.equal((await store.getStoreSite(server.id))?.dirty, true);
+
+  await assert.rejects(store.setStoreSlug(server.id, actor, "admin"), /invalid_slug/);
+  const other = await m.servers.createServer({ name: "Other RP", guildId: null, createdBy: A });
+  assert.ok(other.ok);
+  await store.ensureStoreSite(other.server, data);
+  await assert.rejects(store.setStoreSlug(server.id, actor, other.server.id), /slug_taken/);
+  const moved = await store.setStoreSlug(server.id, actor, "boutique-shop");
+  assert.equal(moved.slug, "boutique-shop");
+  assert.equal(await store.getPublicStore(site.slug), null);
+  assert.ok(await store.getPublicStore("boutique-shop"));
+
+  const versions = await store.listStoreVersions(server.id);
+  assert.equal(versions[0].source, "publish");
+  const restored = await store.restoreStoreVersion(server.id, actor, versions[0].id);
+  assert.equal(restored.draft.brand.name, "Ma Boutique");
+  assert.equal((await store.listStoreVersions(server.id))[0].source, "restore");
+  const unpub = await store.unpublishStore(server.id, actor);
+  assert.equal(unpub.published, null);
+  assert.equal(await store.getPublicStore("boutique-shop"), null);
+  const logs = await db.all<{ action: string }>("SELECT action FROM audit_log WHERE server_id = ? AND action LIKE 'store_%' ORDER BY id", [server.id]);
+  assert.deepEqual(logs.map((l) => l.action), ["store_publish", "store_slug", "store_restore", "store_unpublish"]);
+
+  const reply = store.parseStoreAIReply('Voici :\n```json\n{"summary":"Thème néon","design":{"preset":"neon","blocks":[{"type":"hero","p":{"title":"Yo"}},{"type":"featured","p":{"packageId":999}}]}}\n```');
+  assert.equal(reply?.summary, "Thème néon");
+  assert.equal(reply?.design.preset, "neon");
+  const kept = store.designFor(reply!.design, data);
+  assert.equal(kept.blocks[1].p.packageId, null); // invented package dropped
+  assert.equal(store.parseStoreAIReply("pas de json"), null);
+  assert.match(store.catalogForAI(data), /10 « VIP Or » 15 EUR/);
+
+  assert.deepEqual(store.cleanItems([{ packageId: 10, quantity: 5 }, { packageId: 11, quantity: 300 }, { packageId: 999, quantity: 1 }, { packageId: 11, quantity: 2 }], data), [
+    { packageId: 10, quantity: 1 }, // quantity disabled in Tebex
+    { packageId: 11, quantity: 2 }
+  ]);
 });

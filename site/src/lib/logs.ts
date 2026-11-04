@@ -13,6 +13,8 @@ export const LOG_GROUPS: Record<string, { label: string; actions: string[] }> = 
   security: { label: "Sécurité", actions: ["player_ban", "player_unban", "anticheat_config", "antiraid_config", "antiraid_restore", "player_screen", "player_freeze", "discord_lockdown", "discord_unlock", "discord_backup", "discord_restore"] },
   audit: { label: "Scanner", actions: ["audit_run", "audit_settings"] },
   studio: { label: "Studio IA", actions: ["studio_create", "studio_delete", "studio_deploy"] },
+  shop: { label: "Boutique", actions: ["shop_config", "shop_webhook_rotate", "shop_payment_note", "shop_payment_status", "shop_manual_payment", "shop_package", "shop_checkout", "shop_coupon_create", "shop_coupon_delete", "shop_giftcard_create", "shop_giftcard_void", "shop_giftcard_topup", "shop_ban"] },
+  store: { label: "Store Creator", actions: ["store_publish", "store_unpublish", "store_slug", "store_restore", "store_ai"] },
   server: { label: "Serveur", actions: ["server_create","server_update", "owner_add", "owner_remove", "fivem_token_rotate"] }
 };
 
@@ -62,8 +64,28 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
   audit_settings: { label: "Réglages du scanner", tone: "warn" },
   studio_create: { label: "Studio : création", tone: "info" },
   studio_delete: { label: "Studio : suppression", tone: "danger" },
-  studio_deploy: { label: "Studio : déploiement", tone: "warn" }
+  studio_deploy: { label: "Studio : déploiement", tone: "warn" },
+  shop_config: { label: "Réglages boutique", tone: "warn" },
+  shop_webhook_rotate: { label: "Webhook Tebex", tone: "warn" },
+  shop_payment_note: { label: "Note de paiement", tone: "neutral" },
+  shop_payment_status: { label: "Statut de paiement", tone: "warn" },
+  shop_manual_payment: { label: "Paiement manuel", tone: "info" },
+  shop_package: { label: "Package modifié", tone: "info" },
+  shop_checkout: { label: "Lien d'achat", tone: "neutral" },
+  shop_coupon_create: { label: "Code promo +", tone: "info" },
+  shop_coupon_delete: { label: "Code promo −", tone: "danger" },
+  shop_giftcard_create: { label: "Carte cadeau +", tone: "info" },
+  shop_giftcard_void: { label: "Carte cadeau annulée", tone: "danger" },
+  shop_giftcard_topup: { label: "Carte cadeau rechargée", tone: "info" },
+  shop_ban: { label: "Ban boutique", tone: "danger" },
+  store_publish: { label: "Boutique publiée", tone: "up" },
+  store_unpublish: { label: "Boutique hors ligne", tone: "danger" },
+  store_slug: { label: "Adresse boutique", tone: "warn" },
+  store_restore: { label: "Version restaurée", tone: "info" },
+  store_ai: { label: "Store Creator : IA", tone: "info" }
 };
+
+const PAYMENT_STATUS: Record<string, string> = { complete: "payé", refund: "remboursé", chargeback: "chargeback" };
 
 const STUDIO_KINDS: Record<string, string> = { ui: "UI", script: "Script", map: "Mapping" };
 
@@ -157,6 +179,45 @@ function describe(action: string, d: Record<string, unknown>): string {
       return `${d.kind ? `${STUDIO_KINDS[String(d.kind)] ?? d.kind} ` : ""}« ${d.name ?? "?"} » (${d.resource ?? "?"})`;
     case "studio_deploy":
       return `${d.resource ?? "?"} · ${d.files ?? 0} fichier(s) envoyé(s) au serveur`;
+    case "shop_config": {
+      const parts = [d.secret && `clé secrète ${d.secret === "removed" ? "retirée" : "changée"}`, d.webhookSecret && `secret du webhook ${d.webhookSecret === "removed" ? "retiré" : "changé"}`,
+        d.publicToken && `token public ${d.publicToken === "removed" ? "retiré" : "renseigné"}`, d.alerts !== undefined && `alertes Discord ${d.alerts ? "activées" : "désactivées"}`];
+      return parts.filter(Boolean).join(" · ") || "Réglages enregistrés";
+    }
+    case "shop_webhook_rotate":
+      return "Nouvelle adresse de webhook (l'ancienne ne marche plus)";
+    case "shop_payment_note":
+      return `${d.txn ?? "?"} : « ${String(d.note ?? "").slice(0, 200)} »`;
+    case "shop_payment_status":
+      return `${d.txn ?? "?"} marqué ${PAYMENT_STATUS[String(d.status)] ?? d.status}${d.player ? ` (${d.player})` : ""}`;
+    case "shop_manual_payment":
+      return `${d.player ?? "?"} · package(s) ${Array.isArray(d.packages) ? d.packages.join(", ") : "?"}${d.note ? ` — « ${d.note} »` : ""}`;
+    case "shop_package":
+      return `#${d.id ?? "?"} « ${d.name ?? "?"} » · ${d.price ?? "?"}${d.disabled ? " · désactivé" : ""}`;
+    case "shop_checkout":
+      return `Package #${d.packageId ?? "?"} pour ${d.player ?? "?"}`;
+    case "shop_coupon_create":
+      return `${d.code ?? "?"} · −${d.discount ?? "?"}${d.limit ? ` · ${d.limit} utilisation(s)` : ""}${d.expireDate ? ` · jusqu'au ${d.expireDate}` : ""}`;
+    case "shop_coupon_delete":
+      return String(d.code ?? "");
+    case "shop_giftcard_create":
+      return `${d.amount ?? "?"}${d.note ? ` — « ${d.note} »` : ""}`;
+    case "shop_giftcard_void":
+      return `Carte #${d.card ?? "?"}`;
+    case "shop_giftcard_topup":
+      return `Carte #${d.card ?? "?"} · +${d.amount ?? "?"}`;
+    case "shop_ban":
+      return `${d.player ?? "?"}${reason}`;
+    case "store_publish":
+      return `/store/${d.slug ?? "?"} · ${d.blocks ?? 0} bloc(s)`;
+    case "store_unpublish":
+      return `/store/${d.slug ?? "?"} n'est plus accessible`;
+    case "store_slug":
+      return `/store/${d.from ?? "?"} → /store/${d.to ?? "?"}`;
+    case "store_restore":
+      return `Version #${d.version ?? "?"} remise dans le brouillon`;
+    case "store_ai":
+      return `« ${String(d.prompt ?? "").slice(0, 200)} »`;
     case "staff_sync":
       return `${d.total ?? 0} membres · +${d.inserted ?? 0} / ~${d.updated ?? 0} / −${d.markedLeft ?? 0}`;
     default:

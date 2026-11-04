@@ -6,6 +6,8 @@ import { getPlayer } from "@/lib/players";
 import { isBanActive, listBans, listDetections, listScreenshots } from "@/lib/security";
 import { detectionLabel } from "@/lib/security-config";
 import { linkedAccounts } from "@/lib/security-live";
+import { shopEventsForPlayer } from "@/lib/tebex";
+import { eventMeta, formatMoney } from "@/lib/tebex-shared";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import Shell from "@/app/shell";
 import CopyButton from "@/app/copy-button";
@@ -33,6 +35,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ serverI
     security ? linkedAccounts(server.id, id) : Promise.resolve([])
   ]);
   if (!player) notFound();
+  // Purchases come from the Tebex webhooks, matched on the player's Cfx.re account.
+  const purchases = can(user, "shop_view") ? await shopEventsForPlayer(server.id, player.identifiers, 15) : [];
   const activeBan = bans.find((b) => isBanActive(b)) ?? null;
   const inGame = live.players.find((p) => p.playerId === player.id) ?? null;
 
@@ -154,6 +158,24 @@ export default async function PlayerPage({ params }: { params: Promise<{ serverI
             ))}
           </ul>
         </section>
+
+        {purchases.length > 0 && (
+          <section className="rise rise-2">
+            <header style={{ paddingBottom: 12, borderBottom: "1px solid var(--line-2)" }}><h2 className="h2">Boutique</h2></header>
+            <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0 }}>
+              {purchases.map((e) => (
+                <li key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "11px 0", borderBottom: "1px solid var(--line)" }}>
+                  <div>
+                    <span className="tag" data-tone={eventMeta(e.type).tone}>{eventMeta(e.type).label}</span>{" "}
+                    {e.txnId && e.type.startsWith("payment.") ? <Link href={`/s/${server.id}/shop/payments/${encodeURIComponent(e.txnId)}`}>{e.products.map((x) => x.name).join(", ") || e.txnId}</Link> : e.products.map((x) => x.name).join(", ")}
+                    <div className="muted" style={{ fontSize: 12 }}>{formatDateTime(e.happenedAt)}</div>
+                  </div>
+                  {e.amount !== null && <span className="num-cell">{formatMoney(e.amount, e.currency)}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </Shell>
   );

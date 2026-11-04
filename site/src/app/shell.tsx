@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Ban, Boxes, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { Ban, BadgePercent, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, TrendingUp, Users } from "lucide-react";
 import { can, isOwner } from "@/lib/auth";
 import type { Server } from "@/lib/servers";
 import type { Identity, SessionUser } from "@/lib/types";
@@ -8,7 +8,7 @@ import { Mark } from "./brand";
 import LogoutButton from "./logout-button";
 import { GuildIcon } from "./new-server-form";
 
-export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "staff" | "report" | "logs" | "admin" | "settings";
+export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "staff" | "report" | "logs" | "admin" | "settings";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; active?: boolean };
 export type NavSection = { label: string; items: NavItem[] };
@@ -28,6 +28,14 @@ export default function Shell({ user, server, active, children }: Props) {
         ]
       : []),
     ...(can(user, "resources") || can(user, "console") ? [item("server", `${base}/server`, "Ressources & console", ServerIcon)] : [])
+  ];
+  const shopItems = [
+    item("shop", `${base}/shop`, "Ventes", Store),
+    item("shop_payments", `${base}/shop/payments`, "Paiements", CreditCard),
+    item("shop_catalog", `${base}/shop/catalog`, "Catalogue", ShoppingBag),
+    item("shop_promos", `${base}/shop/promos`, "Promotions", BadgePercent),
+    item("shop_customers", `${base}/shop/customers`, "Clients", UserSearch),
+    ...(isOwner(user) ? [item("shop_settings", `${base}/shop/settings`, "Réglages boutique", Settings)] : [])
   ];
   const sections: NavSection[] = [
     {
@@ -56,6 +64,15 @@ export default function Shell({ user, server, active, children }: Props) {
             item("studio_ui", `${base}/studio/ui`, "UI Creator", Palette),
             item("studio_script", `${base}/studio/script`, "Script Creator", FileCode2),
             item("studio_map", `${base}/studio/map`, "Mapping Creator", Boxes)
+          ]
+        }]
+      : []),
+    ...(can(user, "shop_view") || can(user, "store_edit")
+      ? [{
+          label: "Boutique Tebex",
+          items: [
+            ...(can(user, "store_edit") ? [item("store_creator", `${base}/store`, "Store Creator", WandSparkles)] : []),
+            ...(can(user, "shop_view") ? shopItems : [])
           ]
         }]
       : []),

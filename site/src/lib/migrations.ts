@@ -621,6 +621,73 @@ const migrations: { name: string; sql: string }[] = [
         updated_at TEXT NOT NULL
       )
     `
+  },
+  {
+    name: "020_tebex",
+    sql: `
+      CREATE TABLE IF NOT EXISTS tebex_settings (
+        server_id TEXT PRIMARY KEY,
+        secret_enc TEXT,
+        public_token TEXT,
+        webhook_key TEXT UNIQUE,
+        webhook_secret_enc TEXT,
+        alerts_json TEXT NOT NULL DEFAULT '{}',
+        account_json TEXT,
+        checked_at TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS tebex_events (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        txn_id TEXT,
+        status TEXT,
+        amount REAL,
+        currency TEXT,
+        customer_name TEXT,
+        customer_id TEXT,
+        products_json TEXT NOT NULL DEFAULT '[]',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        happened_at TEXT NOT NULL,
+        received_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_tebex_events ON tebex_events(server_id, happened_at);
+      CREATE INDEX IF NOT EXISTS idx_tebex_events_txn ON tebex_events(server_id, txn_id);
+      CREATE TABLE IF NOT EXISTS tebex_disabled_packages (
+        server_id TEXT NOT NULL,
+        package_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        price REAL NOT NULL,
+        disabled_at TEXT NOT NULL,
+        PRIMARY KEY (server_id, package_id)
+      )
+    `
+  },
+  {
+    name: "021_store_creator",
+    sql: `
+      CREATE TABLE IF NOT EXISTS store_sites (
+        server_id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        draft_json TEXT NOT NULL,
+        published_json TEXT,
+        published_at TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS store_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        prompt TEXT,
+        summary TEXT,
+        design_json TEXT NOT NULL,
+        author_discord_id TEXT NOT NULL,
+        author_name TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_store_versions ON store_versions(server_id, id)
+    `
   }
 ];
 

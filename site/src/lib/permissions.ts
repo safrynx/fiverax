@@ -25,7 +25,11 @@ export const PERMISSIONS = [
   { key: "screenshot", label: "Capturer l'écran d'un joueur", group: "Sécurité" },
   { key: "security_config", label: "Régler l'anticheat et l'anti-raid", group: "Sécurité" },
   { key: "studio", label: "Créer des UI, scripts et mappings avec l'IA", group: "Studio IA" },
-  { key: "studio_deploy", label: "Déployer les créations sur le serveur FiveM", group: "Studio IA" }
+  { key: "studio_deploy", label: "Déployer les créations sur le serveur FiveM", group: "Studio IA" },
+  { key: "shop_view", label: "Voir la boutique (ventes, paiements, catalogue, clients)", group: "Boutique Tebex" },
+  { key: "shop_manage", label: "Gérer les paiements, le catalogue et les bans Tebex", group: "Boutique Tebex" },
+  { key: "shop_promos", label: "Créer des codes promo et des cartes cadeaux", group: "Boutique Tebex" },
+  { key: "store_edit", label: "Créer et publier la boutique en ligne (Store Creator)", group: "Boutique Tebex" }
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number]["key"];

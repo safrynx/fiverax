@@ -156,7 +156,8 @@ const SERVER_TABLES = [
   "warnings", "playtime_snapshots", "playtime_totals", "discord_roles", "grade_roles", "panel_access", "warn_roles",
   "weekly_reviews", "server_owners", "member_roles", "fivem_state", "fivem_commands", "players", "player_sessions", "fivem_console",
   "security_settings", "bans", "ac_detections", "ac_screenshots", "security_incidents",
-  "screen_frames", "bot_actions", "discord_backups"
+  "screen_frames", "bot_actions", "discord_backups",
+  "tebex_settings", "tebex_events", "tebex_disabled_packages", "store_sites", "store_versions"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */

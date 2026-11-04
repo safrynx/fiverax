@@ -10,7 +10,7 @@ const body = DM_Sans({ subsets: ["latin"], variable: "--font-body-loaded", displ
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL || "http://localhost:3000"),
   title: { default: "Fiverax · Dashboard FiveM", template: "%s · Fiverax" },
-  description: "Fiverax : le dashboard de tes serveurs FiveM. Staff, grades, avertissements, activité vocale et en jeu, bilan IA hebdomadaire."
+  description: "Fiverax : le dashboard de tes serveurs FiveM. Staff, boutique Tebex avec Store Creator IA, anticheat, activité vocale et en jeu, bilan IA hebdomadaire."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

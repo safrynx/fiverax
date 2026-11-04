@@ -146,3 +146,58 @@
 .lost { min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 24px; position: relative; z-index: 1; }
 .lost b { display: block; font-family: var(--font-display); font-size: clamp(80px, 16vw, 160px); line-height: 1; letter-spacing: -0.06em; }
 .lost-mark { display: block; margin: 0 auto 6px; }
+
+/* ---------- landing: Store Creator ---------- */
+.lp-store > header { max-width: 760px; }
+.lp-store-grid { display: grid; gap: 34px; align-items: center; }
+@media (min-width: 1000px) { .lp-store-grid { grid-template-columns: 0.95fr 1.05fr; } }
+.lp-store-modes { display: grid; gap: 14px; }
+.lp-store-mode { display: flex; gap: 16px; padding: 20px 22px; border-radius: 16px; border: 1px solid rgba(var(--accent-rgb), 0.35); background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.12), transparent 65%); }
+.lp-store-mode .ic { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border-radius: 12px; background: rgba(var(--accent-rgb), 0.16); color: var(--accent); }
+.lp-store-mode h3 { font-family: var(--font-display); font-weight: 500; font-size: 17px; margin: 0 0 6px; }
+.lp-store-mode p { margin: 0; color: var(--muted); line-height: 1.6; }
+.lp-store-points { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.lp-store-points li { display: flex; gap: 10px; align-items: flex-start; }
+.lp-store-points svg { color: var(--accent); flex: none; margin-top: 3px; }
+.lp-store-points b { display: block; font-size: 14px; }
+.lp-store-points span { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.lp-store .lp-cta { margin-top: 40px; }
+
+.lp-store-demo { position: relative; border-radius: 18px; border: 1px solid rgba(255, 61, 242, 0.3); background: #07060f; box-shadow: 0 60px 120px -50px rgba(0, 0, 0, 1), 0 0 80px -30px rgba(255, 61, 242, 0.45); overflow: visible; font-family: "Rajdhani", var(--font-body); color: #f2efff; }
+.lp-store-demo > .bar { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid rgba(242, 239, 255, 0.08); font-family: var(--font-body); }
+.lp-store-demo > .bar i { width: 9px; height: 9px; border-radius: 50%; background: rgba(242, 239, 255, 0.18); }
+.lp-store-demo > .bar span { margin-left: 10px; font-size: 11.5px; color: #9b95c2; }
+.lp-sd { position: relative; padding: 16px; display: grid; gap: 12px; border-radius: 0 0 18px 18px; overflow: hidden; background: radial-gradient(500px 240px at 80% 0%, rgba(255, 61, 242, 0.22), transparent 70%), linear-gradient(rgba(242, 239, 255, 0.05) 1px, transparent 1px) 0 0 / 30px 30px, linear-gradient(90deg, rgba(242, 239, 255, 0.05) 1px, transparent 1px) 0 0 / 30px 30px; }
+.lp-sd-nav { display: flex; justify-content: space-between; align-items: center; }
+.lp-sd-nav b { display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; }
+.lp-sd-nav b span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg, #ff3df2, #22d3ee); color: #07060f; font-size: 12px; }
+.lp-sd-nav em { font-style: normal; font-size: 12px; padding: 4px 9px; border-radius: 8px; border: 1px solid rgba(242, 239, 255, 0.18); }
+.lp-sd-hero { display: grid; gap: 6px; padding: 18px 4px 8px; }
+.lp-sd-hero small { color: #ff3df2; font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.lp-sd-hero strong { font-size: clamp(24px, 3.4vw, 36px); line-height: 1; text-transform: uppercase; letter-spacing: 0.02em; background: linear-gradient(100deg, #fff 30%, #ff9df8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lp-sd-hero p { margin: 0; color: #b9b3dd; font-size: 13.5px; }
+.lp-sd-hero > div { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 6px; }
+.lp-sd-hero u { text-decoration: none; padding: 7px 14px; border-radius: 8px; font-weight: 700; font-size: 13px; color: #07060f; background: linear-gradient(120deg, #ff3df2, #22d3ee); box-shadow: 0 10px 24px -10px rgba(255, 61, 242, 0.8); }
+.lp-sd-live { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(242, 239, 255, 0.12); }
+.lp-sd-live i { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
+.lp-sd-promo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 12px; background: linear-gradient(120deg, #ff3df2, #22d3ee); color: #07060f; font-weight: 700; }
+.lp-sd-promo b { font-size: 16px; text-transform: uppercase; }
+.lp-sd-promo span { font-variant-numeric: tabular-nums; font-size: 15px; letter-spacing: 0.04em; }
+.lp-sd-promo code { padding: 3px 10px; border: 2px dashed rgba(7, 6, 15, 0.6); border-radius: 8px; font-family: inherit; font-size: 14px; letter-spacing: 0.08em; }
+.lp-sd-cards { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.lp-sd-cards > div { display: grid; gap: 6px; padding: 8px; border-radius: 12px; border: 1px solid rgba(242, 239, 255, 0.14); background: rgba(18, 15, 36, 0.7); transition: transform 0.4s var(--ease); }
+.lp-sd-cards > div:nth-child(2) { transform: translateY(-6px); border-color: rgba(255, 61, 242, 0.55); }
+.lp-sd-cards i { position: relative; display: block; aspect-ratio: 16 / 10; border-radius: 8px; background: linear-gradient(135deg, rgba(255, 61, 242, 0.45), rgba(34, 211, 238, 0.35)); }
+.lp-sd-cards > div:nth-child(2) i { background: linear-gradient(135deg, rgba(34, 211, 238, 0.5), rgba(139, 92, 246, 0.45)); }
+.lp-sd-cards > div:nth-child(3) i { background: linear-gradient(135deg, rgba(250, 204, 21, 0.45), rgba(255, 61, 242, 0.4)); }
+.lp-sd-cards em { position: absolute; left: 6px; top: 6px; font-style: normal; font-size: 9.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: #ff3df2; color: #07060f; }
+.lp-sd-cards b { font-size: 13px; line-height: 1.1; }
+.lp-sd-cards span { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; }
+.lp-sd-cards u { text-decoration: none; font-size: 10.5px; padding: 3px 8px; border-radius: 6px; background: #ff3df2; color: #07060f; }
+.lp-sd-goal { display: grid; gap: 6px; font-size: 12px; color: #b9b3dd; }
+.lp-sd-goal i { display: block; height: 8px; border-radius: 99px; background: rgba(242, 239, 255, 0.1); overflow: hidden; }
+.lp-sd-goal b { display: block; width: 72%; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #ff3df2, #22d3ee); box-shadow: 0 0 14px rgba(255, 61, 242, 0.7); }
+.lp-store-note { position: absolute; right: -10px; bottom: -18px; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; font-family: var(--font-body); font-size: 12px; white-space: nowrap; color: var(--text); background: rgba(30, 24, 16, 0.92); border: 1px solid var(--line-2); box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.8); animation: float 7s ease-in-out infinite; }
+.lp-store-note small { display: block; color: var(--muted); font-size: 11px; }
+.lp-store-note .ic { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: rgba(var(--accent-rgb), 0.16); color: var(--accent); }
+@media (max-width: 560px) { .lp-sd-cards { grid-template-columns: 1fr 1fr; } .lp-sd-cards > div:nth-child(3) { display: none; } .lp-store-note { right: 8px; } }

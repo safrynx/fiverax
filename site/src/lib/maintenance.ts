@@ -1,5 +1,6 @@
 import { closeStalePlayerSessions } from "./agent";
 import { pruneSecurityData } from "./security";
+import { pruneShopEvents } from "./tebex";
 import { closeStaleFivemSessions } from "./fivem";
 import { getServerStatus, setServerStatus } from "./bot-status";
 import { aiConfigured, generateWeeklyReviews } from "./review";
@@ -35,7 +36,8 @@ export async function runMaintenance() {
   const staleFivemClosed = await closeStaleFivemSessions(FIVEM_STALE_SECONDS);
   const stalePlayersClosed = await closeStalePlayerSessions(FIVEM_STALE_SECONDS);
   const screenshotsPruned = await pruneSecurityData();
+  const shopEventsPruned = await pruneShopEvents();
   const due: Server[] = [];
   for (const server of await listServers()) if (await reviewDue(server)) due.push(server);
-  return { staleFivemClosed, stalePlayersClosed, screenshotsPruned, reviewDue: due };
+  return { staleFivemClosed, stalePlayersClosed, screenshotsPruned, shopEventsPruned, reviewDue: due };
 }
