@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Ban, Bot, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { Ban, Bot, Globe, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, TrendingUp, Users } from "lucide-react";
 import { can, isOwner } from "@/lib/auth";
 import type { Server } from "@/lib/servers";
 import type { Identity, SessionUser } from "@/lib/types";
@@ -8,7 +8,7 @@ import { Mark } from "./brand";
 import LogoutButton from "./logout-button";
 import { GuildIcon } from "./new-server-form";
 
-export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "assistant" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "settings";
+export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "assistant" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "directory" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "settings";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; active?: boolean };
 export type NavSection = { label: string; items: NavItem[] };
@@ -68,10 +68,11 @@ export default function Shell({ user, server, active, children }: Props) {
           ]
         }]
       : []),
-    ...(can(user, "view_security") || can(user, "studio")
+    ...(can(user, "view_security") || can(user, "studio") || can(user, "directory_edit")
       ? [{
           label: "Réseau Fiverax",
           items: [
+            ...(can(user, "directory_edit") ? [item("directory", `${base}/directory`, "Fiche annuaire", Globe)] : []),
             ...(can(user, "view_security") ? [item("network", `${base}/network`, "Bans partagés", Network)] : []),
             ...(can(user, "studio")
               ? [

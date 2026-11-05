@@ -1,0 +1,32 @@
+import { requirePermissionPage } from "@/lib/auth";
+import { featuredSlots, getListing, publishProblems, reviewsForStaff, reviewsToModerate, statsFor } from "@/lib/directory";
+import Shell, { PageHead } from "@/app/shell";
+import DirectoryEditor from "./directory-editor";
+
+export const dynamic = "force-dynamic";
+
+export default async function DirectoryAdminPage({ params }: { params: Promise<{ serverId: string }> }) {
+  const { user, server } = await requirePermissionPage((await params).serverId, "directory_edit");
+  const [listing, stats, reviews, slots, moderation] = await Promise.all([
+    getListing(server.id), statsFor(server.id), reviewsForStaff(server.id), featuredSlots(server.id),
+    user.platformOwner ? reviewsToModerate() : Promise.resolve([])
+  ]);
+
+  return (
+    <Shell user={user} server={server} active="directory">
+      <PageHead kicker="Réseau Fiverax" title="Fiche annuaire">
+        Ta page dans l&apos;annuaire public des serveurs Fiverax : les joueurs y voient qui est connecté en direct, lisent les avis de ceux qui ont joué chez toi
+        et rejoignent en un clic. Gratuit, publié quand tu veux.
+      </PageHead>
+      <DirectoryEditor
+        initial={listing}
+        problems={publishProblems(listing)}
+        stats={stats}
+        reviews={reviews}
+        slots={slots}
+        moderation={moderation}
+        platformOwner={user.platformOwner}
+      />
+    </Shell>
+  );
+}

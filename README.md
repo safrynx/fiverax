@@ -62,6 +62,14 @@ Page « Serveur FiveM > Assistant IA » (permission « Console du serveur et ass
 - **Annuler** : chaque modification appliquée garde le contenu d'avant et s'annule en un clic (historique en bas de la page).
 - `set fiverax_files 1` : l'IA peut lire mais pas modifier ; `set fiverax_files 0` : ni l'un ni l'autre.
 
+## Annuaire public
+`/annuaire` liste les serveurs qui utilisent Fiverax : c'est une vitrine pour eux et un canal d'acquisition pour Fiverax (appels « Référencer mon serveur » sur chaque page, comptés).
+- **Fiche** (menu Réseau Fiverax > Fiche annuaire, permission « Gérer la fiche du serveur dans l'annuaire public ») : nom, adresse `/annuaire/<slug>`, accroche, présentation, logo, bannière, galerie, connexion FiveM (`cfx.re/join/…` ou `ip:port`), Discord, site, étiquettes, framework, langue, âge minimum. Aperçu avant publication ; publiable dès qu'il y a une accroche, une présentation et une connexion ou un Discord.
+- **En direct** : joueurs connectés (agent), joueurs différents sur 7 jours ; masquable.
+- **Avis vérifiés** : connexion Discord, au moins 1 h de jeu sur le serveur d'après les sessions de l'agent (compte Discord lié en jeu), jamais par le staff du serveur. Un avis par compte (modifiable), réponse publique du serveur. 3 signalements de comptes différents masquent l'avis jusqu'à la modération des admins de la plateforme (même page).
+- **Mise en avant** : créneaux « À la une » posés par les admins de la plateforme (`PANEL_OWNER_IDS`) pour l'instant ; le paiement viendra plus tard (`directory_featured.source`).
+- **Statistiques** (30 jours) : vues de la fiche, clics Rejoindre, Discord, boutique, site. Données structurées (note moyenne) et `sitemap.xml` pour le référencement.
+
 ## Qui voit quoi
 - **N'importe qui** se connecte avec Discord et **ajoute son serveur** : seulement un serveur Discord où il est propriétaire, administrateur ou a « Gérer le serveur » (limite `MAX_SERVERS_PER_USER`, 5 par défaut). Il en devient propriétaire et la page Configuration le guide (bot, rôles, équipe, FiveM).
 - **Administrateurs de la plateforme** (`PANEL_OWNER_IDS` dans `site/.env`, facultatif) : tous les serveurs, tous les droits, sans limite, ajout manuel de n'importe quel serveur Discord.

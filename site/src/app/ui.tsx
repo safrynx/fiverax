@@ -180,6 +180,28 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "unknown_scan": return "Scan introuvable (les 30 derniers sont gardés).";
     case "unknown_finding": return "Problème introuvable dans ce rapport.";
     case "resource_taken": return "Une création porte déjà ce nom de ressource sur ce serveur : choisis-en un autre.";
+    case "slug_taken": return "Cette adresse est déjà prise par un autre serveur : choisis-en une autre.";
+    case "invalid_slug": return "Adresse invalide : 3 à 40 caractères, minuscules, chiffres et tirets.";
+    case "invalid_name": return "Nom invalide (2 à 60 caractères).";
+    case "invalid_connect": return "Adresse de connexion invalide : cfx.re/join/xxxxxx ou ip:port.";
+    case "invalid_discord": return "Invitation Discord invalide : discord.gg/xxxx.";
+    case "invalid_logoUrl":
+    case "invalid_bannerUrl":
+    case "invalid_gallery":
+    case "invalid_website": return "Lien invalide : il doit commencer par https://.";
+    case "listing_not_saved": return "Enregistre la fiche avant de la publier.";
+    case "listing_incomplete": return "Fiche incomplète : accroche (10 caractères), description (80 caractères) et connexion FiveM ou Discord.";
+    case "listing_not_published": return "Publie d'abord la fiche dans l'annuaire.";
+    case "invalid_days": return "Durée invalide (1 à 90 jours).";
+    case "unknown_listing": return "Ce serveur n'est plus dans l'annuaire.";
+    case "invalid_review": return "Avis invalide : une note de 1 à 5 et au moins 20 caractères.";
+    case "review_login": return "Connecte-toi avec Discord pour laisser un avis.";
+    case "review_not_played": return "Seuls les joueurs qui ont joué au moins 1 h sur ce serveur (compte Discord lié en jeu) peuvent laisser un avis.";
+    case "review_staff": return "Tu fais partie de l'équipe de ce serveur : tu ne peux pas le noter.";
+    case "review_removed": return "Ton avis a été retiré par la modération.";
+    case "unknown_review": return "Avis introuvable.";
+    case "own_review": return "Tu ne peux pas signaler ton propre avis.";
+    case "invalid_reason": return "Explique en quelques mots pourquoi.";
     case "invalid_resource": return "Nom de ressource invalide (minuscules, chiffres, _ et -, 3 à 48 caractères).";
     case "unknown_creation": return "Création introuvable (supprimée ?).";
     case "unknown_version": return "Version introuvable.";

@@ -796,6 +796,66 @@ const migrations: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_assistant_changes ON assistant_changes(server_id, id)
     `
+  },
+  {
+    // Public directory of Fiverax servers: listing (showcase page), reviews of verified players and their reports,
+    // featured slots (set by the platform for now, paid later) and daily counters (views, clicks).
+    name: "024_directory",
+    sql: `
+      CREATE TABLE IF NOT EXISTS directory_listings (
+        server_id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        data_json TEXT NOT NULL,
+        published INTEGER NOT NULL DEFAULT 0,
+        published_at TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS directory_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        avatar_url TEXT,
+        rating INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        playtime_seconds INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'published',
+        reports INTEGER NOT NULL DEFAULT 0,
+        reply TEXT,
+        reply_at TEXT,
+        reply_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (server_id, discord_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_directory_reviews ON directory_reviews(server_id, status, id);
+      CREATE TABLE IF NOT EXISTS directory_review_reports (
+        review_id INTEGER NOT NULL,
+        discord_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (review_id, discord_id)
+      );
+      CREATE TABLE IF NOT EXISTS directory_featured (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        note TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_directory_featured ON directory_featured(ends_at);
+      CREATE TABLE IF NOT EXISTS directory_stats (
+        server_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (server_id, day, kind)
+      )
+    `
   }
 ];
 

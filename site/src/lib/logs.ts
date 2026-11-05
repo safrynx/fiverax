@@ -16,6 +16,7 @@ export const LOG_GROUPS: Record<string, { label: string; actions: string[] }> = 
   studio: { label: "Studio IA", actions: ["studio_create", "studio_delete", "studio_deploy"] },
   network: { label: "Réseau Fiverax", actions: ["network_join", "network_settings", "network_leave", "ban_sharing", "library_publish", "library_unpublish", "library_install", "library_update", "library_report"] },
   shop: { label: "Boutique", actions: ["shop_config", "shop_webhook_rotate", "shop_payment_note", "shop_payment_status", "shop_manual_payment", "shop_package", "shop_checkout", "shop_coupon_create", "shop_coupon_delete", "shop_giftcard_create", "shop_giftcard_void", "shop_giftcard_topup", "shop_ban"] },
+  directory: { label: "Annuaire", actions: ["directory_listing", "directory_publish", "directory_unpublish", "directory_reply", "directory_featured", "directory_unfeatured"] },
   store: { label: "Store Creator", actions: ["store_publish", "store_unpublish", "store_slug", "store_restore", "store_ai"] },
   server: { label: "Serveur", actions: ["server_create","server_update", "owner_add", "owner_remove", "fivem_token_rotate"] }
 };
@@ -95,7 +96,13 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
   store_unpublish: { label: "Boutique hors ligne", tone: "danger" },
   store_slug: { label: "Adresse boutique", tone: "warn" },
   store_restore: { label: "Version restaurée", tone: "info" },
-  store_ai: { label: "Store Creator : IA", tone: "info" }
+  store_ai: { label: "Store Creator : IA", tone: "info" },
+  directory_listing: { label: "Annuaire : fiche modifiée", tone: "info" },
+  directory_publish: { label: "Annuaire : fiche publiée", tone: "up" },
+  directory_unpublish: { label: "Annuaire : fiche retirée", tone: "warn" },
+  directory_reply: { label: "Annuaire : réponse à un avis", tone: "info" },
+  directory_featured: { label: "Annuaire : mise en avant", tone: "up" },
+  directory_unfeatured: { label: "Annuaire : mise en avant retirée", tone: "warn" }
 };
 
 const PAYMENT_STATUS: Record<string, string> = { complete: "payé", refund: "remboursé", chargeback: "chargeback" };
@@ -252,6 +259,16 @@ function describe(action: string, d: Record<string, unknown>): string {
       return `Version #${d.version ?? "?"} remise dans le brouillon`;
     case "store_ai":
       return `« ${String(d.prompt ?? "").slice(0, 200)} »`;
+    case "directory_listing":
+    case "directory_publish":
+    case "directory_unpublish":
+      return `/annuaire/${d.slug ?? "?"}`;
+    case "directory_reply":
+      return d.removed ? `Réponse retirée (avis #${d.reviewId})` : `Avis #${d.reviewId}`;
+    case "directory_featured":
+      return `${d.days} jour(s), jusqu'au ${new Date(String(d.endsAt)).toLocaleDateString("fr-FR")}`;
+    case "directory_unfeatured":
+      return `Créneau #${d.id}`;
     case "network_join":
     case "network_settings":
       return `Mode ${NETWORK_MODE_LABELS[String(d.mode)] ?? d.mode ?? "?"}${d.mode === "block" ? ` dès ${d.minServers ?? "?"} serveur(s)` : ""}`;

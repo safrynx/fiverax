@@ -44,8 +44,11 @@ export async function GET(req: NextRequest) {
   await refreshMemberships(identity, guilds.map((g) => g.id));
   const servers = await listAccessibleServers(identity);
 
-  // One server: straight to it. None or several: the server list (where a new one can be added).
-  const res = NextResponse.redirect(`${appUrl()}${servers.length === 1 ? `/s/${servers[0].id}` : "/servers"}`);
+  // Back to the directory page they came from (to leave a review); else one server: straight to it; none or several: the list.
+  const next = req.cookies.get("fvx_next")?.value;
+  const target = next && /^\/annuaire(?:\/[a-z0-9-]{3,40})?(?:#avis)?$/.test(next) ? next : servers.length === 1 ? `/s/${servers[0].id}` : "/servers";
+  const res = NextResponse.redirect(`${appUrl()}${target}`);
+  if (next) res.cookies.delete("fvx_next");
   res.cookies.set(sessionCookieName, encodeSession(identity), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

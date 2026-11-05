@@ -476,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 23);
+  assert.equal(Number(before), 24);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -2157,4 +2157,103 @@ test("assistant player actions: validated against connected players and the comm
   }), resources, players, new Set(["console"]))!;
   assert.deepEqual(limited.actions.map((a) => a.kind), ["console"]);
   assert.equal(m.agent.COMMANDS.game.permission, "player_manage");
+});
+
+test("directory: listing, publishing, verified reviews, reports, featured slots, stats, order", async () => {
+  const dir = await import("../src/lib/directory");
+  const shared = await import("../src/lib/directory-shared");
+  const owner = "930000000000000001";
+  const created = await m.servers.createServer({ name: "Los Santos Life", guildId: null, createdBy: owner });
+  assert.ok(created.ok);
+  const S = created.ok ? created.server.id : "";
+  const other = await m.servers.createServer({ name: "Autre RP", guildId: null, createdBy: owner });
+  const S2 = other.ok ? other.server.id : "";
+  const actor = { discordId: owner, username: "Owner" };
+
+  const draft = await dir.getListing(S);
+  assert.equal(draft.slug, "los-santos-life");
+  assert.equal(draft.updatedAt, null);
+  await assert.rejects(dir.setPublished(S, actor, true), /listing_not_saved/);
+  const input = {
+    ...draft, tagline: "RP sérieux, économie réaliste", description: "x".repeat(100), connect: "cfx.re/join/abc123", discord: "discord.gg/lsl",
+    tags: ["serious", "whitelist"], framework: "esx", minAge: 16
+  };
+  await assert.rejects(dir.saveListing(S, actor, { ...input, connect: "pas une adresse" }), /invalid_connect/);
+  await assert.rejects(dir.saveListing(S, actor, { ...input, bannerUrl: "http://insecure.example/x.png" }), /invalid_bannerUrl/);
+  const saved = await dir.saveListing(S, actor, input);
+  assert.equal(saved.published, false);
+  await assert.rejects(dir.saveListing(S2, actor, { ...(await dir.getListing(S2)), slug: "los-santos-life" }), /slug_taken/);
+  assert.equal(await dir.getPublicListing("los-santos-life"), null); // not published yet
+  assert.equal((await dir.setPublished(S, actor, true)).published, true);
+  assert.equal(shared.joinUrl("cfx.re/join/ABC123"), "https://cfx.re/join/abc123");
+  assert.equal(shared.joinUrl("51.12.3.4:30120"), "fivem://connect/51.12.3.4:30120");
+  assert.equal(shared.discordUrl("https://discord.com/invite/lsl"), "https://discord.gg/lsl");
+
+  // Reviews: login, then play time recorded by the agent, never staff.
+  const player = { discordId: "940000000000000001", username: "Tata", avatarUrl: null };
+  assert.deepEqual(await dir.reviewEligibility(S, null), { ok: false, reason: "login", playtime: 0, needed: shared.MIN_REVIEW_SECONDS });
+  assert.equal((await dir.reviewEligibility(S, player)).ok, false);
+  await assert.rejects(dir.upsertReview("los-santos-life", player, { rating: 5, body: "Super serveur, staff au top et économie bien pensée." }), /review_not_played/);
+  const now = new Date();
+  await m.db.db.run("INSERT INTO players (server_id, license, name, discord_id, first_seen_at, last_seen_at) VALUES (?, 'license:t', 'Tata', ?, ?, ?)", [S, player.discordId, now.toISOString(), now.toISOString()]);
+  const pid = (await m.db.db.get<{ id: number }>("SELECT id FROM players WHERE server_id = ? AND license = 'license:t'", [S]))!.id;
+  await m.db.db.run("INSERT INTO player_sessions (server_id, player_id, external_id, started_at, ended_at, seconds) VALUES (?, ?, 'dir-s1', ?, ?, 4000)", [S, pid, now.toISOString(), now.toISOString()]);
+  assert.equal((await dir.reviewEligibility(S, player)).ok, true);
+  assert.equal((await dir.reviewEligibility(S, { discordId: owner, username: "Owner", avatarUrl: null })).ok, false); // owner = staff
+  await assert.rejects(dir.upsertReview("los-santos-life", player, { rating: 5, body: "trop court" }), /invalid_review/);
+  const review = await dir.upsertReview("los-santos-life", player, { rating: 4, body: "Super serveur, staff au top et économie bien pensée." });
+  assert.equal(review.playtimeHours, 1);
+  await dir.upsertReview("los-santos-life", player, { rating: 5, body: "Après une semaine : encore mieux, je recommande à tous." });
+  const pub = (await dir.getPublicListing("los-santos-life"))!;
+  assert.deepEqual([pub.rating.count, pub.rating.average], [1, 5]); // one review per account, rewritten
+  assert.equal(pub.live?.weekPlayers, 1);
+
+  await dir.replyReview(S, actor, review.id, "Merci Tata !");
+  assert.equal((await dir.listReviews(S, null))[0].reply, "Merci Tata !");
+
+  // Three different accounts hide it; moderation puts it back.
+  await assert.rejects(dir.reportReview(review.id, player, "mon avis"), /own_review/);
+  for (let i = 0; i < 3; i++) await dir.reportReview(review.id, { discordId: `95000000000000000${i}`, username: `r${i}`, avatarUrl: null }, "faux avis");
+  assert.equal((await dir.reportReview(review.id, { discordId: "950000000000000000", username: "r0", avatarUrl: null }, "encore").catch((e) => e.message)), "unknown_review");
+  assert.equal((await dir.getPublicListing("los-santos-life"))!.rating.count, 0);
+  assert.equal((await dir.listReviews(S, player.discordId))[0].status, "hidden"); // the author still sees it
+  assert.equal((await dir.reviewsToModerate()).some((r) => r.id === review.id), true);
+  await dir.moderateReview(review.id, "published");
+  assert.equal((await dir.getPublicListing("los-santos-life"))!.rating.count, 1);
+
+  // Featured: only a published listing, slots follow each other.
+  await assert.rejects(dir.addFeatured(S2, actor, 7, null), /listing_not_published/);
+  const slots = await dir.addFeatured(S, actor, 7, null);
+  const more = await dir.addFeatured(S, actor, 3, null);
+  assert.equal(slots.length, 1);
+  assert.equal(more[1].startsAt, more[0].endsAt);
+  const { cards, featured, total } = await dir.listDirectory();
+  assert.equal(total, 1);
+  assert.equal(cards[0].featured, true);
+  assert.equal(featured.length, 1);
+  assert.equal((await dir.listDirectory({ tag: "open" })).cards.length, 0);
+  assert.equal((await dir.listDirectory({ q: "santos" })).cards.length, 1);
+
+  // Stats.
+  await dir.track("los-santos-life", "view");
+  await dir.track("los-santos-life", "view");
+  await dir.track("los-santos-life", "join");
+  await dir.track("inconnu", "view");
+  const stats = await dir.statsFor(S, 7);
+  assert.deepEqual([stats.totals.view, stats.totals.join, stats.days.length], [2, 1, 7]);
+
+  // Order: featured first, then live players / rating.
+  const card = (id: string, extra: Partial<import("../src/lib/directory-shared").DirectoryCard>) => ({
+    serverId: id, slug: id, name: id, tagline: "", logoUrl: null, bannerUrl: null, tags: [], framework: "esx", language: "fr", minAge: 0, featured: false,
+    live: { online: false, players: 0, maxClients: 64, weekPlayers: 0 }, rating: { average: null, count: 0, distribution: [0, 0, 0, 0, 0] as [number, number, number, number, number] }, publishedAt: null, ...extra
+  });
+  const sorted = shared.sortCards([
+    card("calme", {}),
+    card("plein", { live: { online: true, players: 80, maxClients: 128, weekPlayers: 300 } }),
+    card("une", { featured: true })
+  ], "relevance");
+  assert.deepEqual(sorted.map((c) => c.serverId), ["une", "plein", "calme"]);
+
+  await dir.setPublished(S, actor, false);
+  assert.equal((await dir.listDirectory()).total, 0);
 });

@@ -64,6 +64,7 @@ export default async function LandingPage() {
         <div className="lp-wrap">
           <Link href="/" aria-label="Fiverax"><Wordmark size={30} /></Link>
           <nav>
+            <Link href="/annuaire">Annuaire des serveurs</Link>
             <a href="#boutique">Store Creator</a>
             <a href="#fonctionnalites">Fonctionnalités</a>
             <a href="#modules">Modules</a>
@@ -269,6 +270,7 @@ export default async function LandingPage() {
           <nav>
             <a href="#fonctionnalites">Fonctionnalités</a>
             <a href="#faq">FAQ</a>
+            <Link href="/annuaire">Annuaire des serveurs</Link>
             <Link href="/login">Connexion</Link>
           </nav>
           <span>© {new Date().getFullYear()} Fiverax</span>

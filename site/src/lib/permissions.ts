@@ -28,6 +28,7 @@ export const PERMISSIONS = [
   { key: "security_config", label: "Régler l'anticheat et l'anti-raid", group: "Sécurité" },
   { key: "studio", label: "Créer des UI, scripts et mappings avec l'IA", group: "Studio IA" },
   { key: "studio_deploy", label: "Déployer les créations sur le serveur FiveM", group: "Studio IA" },
+  { key: "directory_edit", label: "Gérer la fiche du serveur dans l'annuaire public (et répondre aux avis)", group: "Réseau Fiverax" },
   { key: "library_publish", label: "Publier des créations dans la bibliothèque du réseau", group: "Réseau Fiverax" },
   { key: "shop_view", label: "Voir la boutique (ventes, paiements, catalogue, clients)", group: "Boutique Tebex" },
   { key: "shop_manage", label: "Gérer les paiements, le catalogue et les bans Tebex", group: "Boutique Tebex" },
