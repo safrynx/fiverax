@@ -400,6 +400,11 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
+-- Same, from the agent's own files (game.lua: teleport / revive from the panel).
+FVX.allowTeleport = function(src, seconds)
+    teleportAllowed[tonumber(src)] = os.time() + (tonumber(seconds) or 5)
+end
+
 exports('allowTeleport', function(src, seconds)
     teleportAllowed[tonumber(src)] = os.time() + (tonumber(seconds) or 5)
 end)

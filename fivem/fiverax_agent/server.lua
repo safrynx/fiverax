@@ -14,10 +14,12 @@
 --   set fiverax_console 0                             # optional: refuse console commands from the panel
 --   set fiverax_deploy 0                              # optional: refuse Studio deployments from the panel
 --   set fiverax_audit_code 0                          # optional: audit without ever sending code (see audit.js)
+--   set fiverax_game 0                                # optional: the AI assistant may not give money / items / jobs (game.lua)
+--   set fiverax_files 1                               # optional: the AI assistant may read but not change files (0: neither)
 --   ensure screenshot-basic                           # optional: screenshots analysed by the AI
 --   ensure fiverax_agent
 
-local VERSION = '3.4.0'
+local VERSION = '3.6.0'
 local RESOURCE = GetCurrentResourceName()
 
 -- The 1.x convars (gtasun_staff_api_url pointed at /api/fivem) still work.
@@ -491,16 +493,21 @@ local handlers = {
     audit = function(p)
         TriggerEvent('fiverax:audit', p.scanId) -- audit.js does the collection
         return true, 'Scan lancé'
+    end,
+    -- Read / change the files of a resource for the AI assistant: files.js does it and reports to the panel.
+    files = function(p, id)
+        TriggerEvent('fiverax:files', id, p)
+        return true, 'Transmis'
     end
 }
 
 local function run(command)
-    local handler = handlers[command.kind]
+    local handler = handlers[command.kind] or (FVX.handlers and FVX.handlers[command.kind])
     if not handler then return { id = command.id, ok = false, message = 'Action inconnue : mets à jour fiverax_agent' } end
     local payload = command.payload or {}
     -- JSON numbers may decode as floats ("3.0" once turned into a player source string).
     if payload.target then payload.target = math.floor(tonumber(payload.target) or -1) end
-    local success, ok, message = pcall(handler, payload)
+    local success, ok, message = pcall(handler, payload, command.id)
     if not success then return { id = command.id, ok = false, message = tostring(ok):sub(1, 2000) } end
     return { id = command.id, ok = ok and true or false, message = message }
 end

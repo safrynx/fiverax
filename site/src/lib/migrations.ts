@@ -750,6 +750,52 @@ const migrations: { name: string; sql: string }[] = [
       ALTER TABLE studio_creations ADD COLUMN library_item_id INTEGER;
       ALTER TABLE studio_creations ADD COLUMN library_version INTEGER
     `
+  },
+  {
+    // Troubleshooting AI: files of the server's resources it read (cache, the AI's context) and the changes it
+    // proposed / applied, with the previous content so each one can be undone.
+    name: "023_assistant_files",
+    sql: `
+      CREATE TABLE IF NOT EXISTS assistant_reads (
+        command_id INTEGER PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        op TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        message TEXT,
+        list_json TEXT,
+        result_json TEXT,
+        created_at TEXT NOT NULL,
+        done_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_assistant_reads ON assistant_reads(server_id, resource, op, command_id);
+      CREATE TABLE IF NOT EXISTS assistant_files (
+        server_id TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        read_at TEXT NOT NULL,
+        PRIMARY KEY (server_id, resource, path)
+      );
+      CREATE TABLE IF NOT EXISTS assistant_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        files_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'proposed',
+        message TEXT,
+        restart INTEGER NOT NULL DEFAULT 1,
+        command_id INTEGER,
+        revert_command_id INTEGER,
+        actor_discord_id TEXT NOT NULL,
+        actor_name TEXT,
+        created_at TEXT NOT NULL,
+        applied_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_assistant_changes ON assistant_changes(server_id, id)
+    `
   }
 ];
 

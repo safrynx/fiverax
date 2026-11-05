@@ -66,3 +66,22 @@ CreateThread(function()
         end
     end
 end)
+
+-- Revive / heal asked from the panel (game.lua). The server allows the teleport that a resurrection looks like.
+RegisterNetEvent('fiverax:game:revive', function()
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    if IsEntityDead(ped) or IsPedFatallyInjured(ped) then
+        NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, GetEntityHeading(ped), true, false)
+        ped = PlayerPedId()
+    end
+    ClearPedTasksImmediately(ped)
+    SetEntityHealth(ped, GetEntityMaxHealth(ped))
+    ClearPedBloodDamage(ped)
+end)
+
+RegisterNetEvent('fiverax:game:heal', function()
+    local ped = PlayerPedId()
+    SetEntityHealth(ped, GetEntityMaxHealth(ped))
+    ClearPedBloodDamage(ped)
+end)

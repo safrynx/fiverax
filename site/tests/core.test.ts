@@ -476,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 22);
+  assert.equal(Number(before), 23);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -2014,4 +2014,147 @@ test("library: publish (scanned), install once per server, new versions reach in
   assert.equal(lib.fileRole("html/index.html", ""), "ui");
   const logs = (await db.all<{ action: string }>("SELECT action FROM audit_log WHERE server_id = ? AND action LIKE 'library_%'", [L2])).map((r) => r.action);
   assert.ok(logs.includes("library_install") && logs.includes("library_update") && logs.includes("library_report"));
+});
+
+test("troubleshooting assistant: console digest and reply parsing", async () => {
+  const t = await import("../src/lib/troubleshoot");
+  const line = (id: number, message: string, channel: string | null = null) => ({ id, at: "2026-11-05T12:00:00.000Z", channel, message });
+  const lines = [line(1, "SCRIPT ERROR: @mon_job/server.lua:12: attempt to index a nil value", "mon_job"), ...Array.from({ length: 60 }, (_, i) => line(i + 2, `ok ${i}`))];
+  const digest = t.consoleDigest(lines);
+  assert.match(digest, /Lignes suspectes plus anciennes \(1\)/);
+  assert.match(digest, /attempt to index a nil value/);
+  assert.doesNotMatch(digest, /ok 0\b/); // old normal lines are dropped
+
+  const known = new Set(["mon_job", "fiverax_agent"]);
+  const reply = t.parseTroubleshoot(JSON.stringify({
+    answer: "Ta table est nil.",
+    actions: [
+      { kind: "resource", action: "restart", name: "mon_job" },
+      { kind: "resource", action: "restart", name: "inconnue" },
+      { kind: "resource", action: "stop", name: "fiverax_agent" },
+      { kind: "console", command: "quit", label: "Quitter" },
+      { kind: "console", command: "ensure mon_job" }
+    ]
+  }), known)!;
+  assert.equal(reply.answer, "Ta table est nil.");
+  assert.deepEqual(reply.actions, [
+    { kind: "resource", action: "restart", name: "mon_job", label: "Redémarrer mon_job" },
+    { kind: "console", command: "ensure mon_job", label: "ensure mon_job" }
+  ]);
+  assert.equal(t.parseTroubleshoot("pas de json", known), null);
+  delete process.env.AI_API_KEY;
+  await assert.rejects(t.troubleshoot("default", { messages: [{ role: "user", content: "aide" }] }), /ai_not_configured/);
+});
+
+test("assistant files: read through the agent, change to validate, write with hash check, undo", async () => {
+  const rf = await import("../src/lib/resource-files");
+  const shared = await import("../src/lib/resource-files-shared");
+  const crypto = await import("node:crypto");
+  const sha = (s: string) => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+  const S = "files-a";
+  const actor = { discordId: A, username: "Boss" };
+  const state = { hostname: "x", maxClients: 10, uptime: 60, players: [], resources: [{ name: "mon_job", state: "started" }, { name: "fiverax_agent", state: "started" }] };
+  await agentCall(S, { state });
+
+  await assert.rejects(rf.requestRead(S, actor, "fiverax_agent"), /invalid_resource/);
+  await assert.rejects(rf.requestRead(S, actor, "absente"), /unknown_resource/);
+  const listId = await rf.requestRead(S, actor, "mon_job");
+  const readId = await rf.requestRead(S, actor, "mon_job", ["server.lua", "../evil.lua", "image.png"]);
+  const sent = await agentCall(S, {});
+  const cmds = sent.commands.filter((c) => c.kind === "files");
+  assert.deepEqual(cmds.map((c) => c.payload), [{ op: "list", resource: "mon_job" }, { op: "read", resource: "mon_job", paths: ["server.lua"] }]);
+
+  const original = "local x = nil\nprint(x.name)\n";
+  await rf.receiveFromAgent(S, { commandId: listId, op: "list", resource: "mon_job", ok: true, list: [{ path: "server.lua", size: 30 }, { path: "client.lua", size: 10 }] });
+  await rf.receiveFromAgent(S, { commandId: readId, op: "read", resource: "mon_job", ok: true, files: [{ path: "server.lua", content: original }] });
+  assert.equal((await rf.readStatus(S, readId))?.status, "done");
+  assert.deepEqual((await rf.listings(S, ["mon_job"]))[0].files.map((f) => f.path), ["server.lua", "client.lua"]);
+  assert.equal((await rf.cachedFiles(S, [{ resource: "mon_job", path: "server.lua" }]))[0].content, original);
+
+  // Edits: patch of a read file, new file, unread existing file refused, missing text refused.
+  const { change, rejected } = await rf.proposeChange(S, actor, "Corrige le nil", [
+    { resource: "mon_job", path: "server.lua", patches: [{ find: "local x = nil", replace: "local x = { name = 'ok' }" }] },
+    { resource: "mon_job", path: "config.lua", content: "Config = {}\n" },
+    { resource: "mon_job", path: "client.lua", content: "-- réécrit" },
+    { resource: "mon_job", path: "server.lua", patches: [{ find: "introuvable", replace: "x" }] }
+  ]);
+  assert.equal(rejected.length, 2);
+  assert.match(rejected[0], /pas encore lu/);
+  assert.match(rejected[1], /introuvable/);
+  assert.equal(change!.status, "proposed");
+  assert.deepEqual(change!.files.map((f) => [f.path, f.before === null]), [["server.lua", false], ["config.lua", true]]);
+  assert.equal((await rf.listChanges(S)).length, 0); // proposals are not in the history
+
+  const applied = await rf.applyChange(S, actor, change!.id, true);
+  assert.equal(applied.status, "pending");
+  const write = (await agentCall(S, {})).commands.find((c) => c.kind === "files")!;
+  const files = write.payload.files as { path: string; content: string | null; expect: string }[];
+  assert.equal(write.payload.restart, true);
+  assert.equal(files[0].expect, sha(original));
+  assert.equal(files[1].expect, ""); // new file
+  await rf.receiveFromAgent(S, { commandId: write.id, op: "write", resource: "mon_job", ok: true, message: "2 fichier(s) modifié(s)" });
+  const done = await rf.getChange(S, change!.id);
+  assert.equal(done?.status, "applied");
+  assert.equal((await rf.cachedFiles(S, [{ resource: "mon_job", path: "server.lua" }]))[0].content, "local x = { name = 'ok' }\nprint(x.name)\n");
+  await assert.rejects(rf.applyChange(S, actor, change!.id, true), /change_not_pending/);
+
+  // Undo: a conflict keeps it applied, then a successful undo restores the cache.
+  await rf.revertChange(S, actor, change!.id);
+  const undo = (await agentCall(S, {})).commands.find((c) => c.kind === "files")!;
+  assert.equal((undo.payload.files as { content: string | null }[])[1].content, null); // the new file is deleted
+  await rf.receiveFromAgent(S, { commandId: undo.id, op: "write", resource: "mon_job", ok: false, message: "server.lua a changé", conflict: "server.lua" });
+  assert.equal((await rf.getChange(S, change!.id))?.status, "applied");
+  await rf.revertChange(S, actor, change!.id);
+  const undo2 = (await agentCall(S, {})).commands.find((c) => c.kind === "files")!;
+  await rf.receiveFromAgent(S, { commandId: undo2.id, op: "write", resource: "mon_job", ok: true });
+  assert.equal((await rf.getChange(S, change!.id))?.status, "reverted");
+  assert.equal((await rf.cachedFiles(S, [{ resource: "mon_job", path: "server.lua" }]))[0].content, original);
+  assert.equal((await rf.cachedFiles(S, [{ resource: "mon_job", path: "config.lua" }])).length, 0);
+  assert.equal((await rf.listChanges(S)).length, 1);
+
+  // Pure helpers.
+  assert.deepEqual(shared.applyPatches("a\r\nb\r\n", [{ find: "a\nb", replace: "c\nd" }]), { ok: true, text: "c\r\nd\r\n" });
+  assert.deepEqual(shared.applyPatches("x x", [{ find: "x", replace: "y" }]), { ok: false, find: "x", reason: "ambiguous" });
+  const diff = shared.lineDiff("a\nb\nc", "a\nB\nc");
+  assert.equal(diff.filter((l) => l.type === "add").length, 1);
+  assert.equal(diff.filter((l) => l.type === "del").length, 1);
+  assert.equal(shared.isEditablePath("html/index.html"), true);
+  assert.equal(shared.isEditablePath("../server.cfg"), false);
+  assert.equal(shared.isEditablePath("stream/car.ytd"), false);
+  assert.equal(m.agent.COMMANDS.files.permission, "server_files");
+});
+
+test("assistant player actions: validated against connected players and the command schemas", async () => {
+  const t = await import("../src/lib/troubleshoot");
+  const players = new Map([[12, "Tata"], [7, "Bob"]]);
+  const resources = new Set(["mon_job"]);
+  const reply = t.parseTroubleshoot(JSON.stringify({
+    answer: "Je rembourse Tata.",
+    actions: [
+      { kind: "player", command: "game", payload: { op: "give_money", target: 12, account: "bank", amount: 5000 } },
+      { kind: "player", command: "game", payload: { op: "give_money", target: 99, account: "cash", amount: 10 } }, // offline
+      { kind: "player", command: "game", payload: { op: "give_money", target: 12, account: "cash", amount: -5 } }, // invalid
+      { kind: "player", command: "game", payload: { op: "set_job", target: 7, job: "mechanic", grade: 2 } },
+      { kind: "player", command: "game", payload: { op: "teleport", target: 12, to: 7 } },
+      { kind: "player", command: "game", payload: { op: "teleport", target: 12 } }, // no destination
+      { kind: "player", command: "kick", payload: { target: 7, reason: "AFK" } },
+      { kind: "player", command: "screenshot", payload: { target: 7 } }, // not an assistant command
+      { kind: "announce", message: "Reboot dans 5 min" }
+    ]
+  }), resources, players)!;
+  assert.deepEqual(reply.actions.map((a) => (a.kind === "player" ? a.description : a.kind)), [
+    `Donner ${(5000).toLocaleString("fr-FR")} $ (banque) à Tata (id 12)`,
+    "Mettre Bob (id 7) job mechanic, grade 2",
+    "Téléporter Tata (id 12) vers Bob (id 7)",
+    "Expulser Bob (id 7) : « AFK »",
+    "announce"
+  ]);
+
+  // Only what the admin may run.
+  const limited = t.parseTroubleshoot(JSON.stringify({
+    answer: "x",
+    actions: [{ kind: "player", command: "game", payload: { op: "heal", target: 7 } }, { kind: "console", command: "status" }]
+  }), resources, players, new Set(["console"]))!;
+  assert.deepEqual(limited.actions.map((a) => a.kind), ["console"]);
+  assert.equal(m.agent.COMMANDS.game.permission, "player_manage");
 });

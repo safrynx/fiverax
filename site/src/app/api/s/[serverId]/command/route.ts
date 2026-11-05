@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
   const serverId = (await params).serverId;
   const kind = req.nextUrl.searchParams.get("kind") ?? "";
   // Deployments and audits are queued by their own APIs (saved files, a scan row).
-  if (!isCommandKind(kind) || kind === "deploy" || kind === "audit") return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
+  if (!isCommandKind(kind) || kind === "deploy" || kind === "audit" || kind === "files") return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
   const guard = await requirePermissionApi(serverId, COMMANDS[kind].permission);
   if ("error" in guard) return guard.error;
   const { user, server } = guard;

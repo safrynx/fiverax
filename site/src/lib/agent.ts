@@ -10,6 +10,7 @@ import { categoryLabel, type NetworkMode } from "./network-shared";
 import { getServer } from "./servers";
 import { AC_ACTIONS, detectionLabel, type AnticheatSettings } from "./security-config";
 import { isFilePath, LIMITS, RESOURCE_RE } from "./studio-shared";
+import { FILE_LIMITS, isEditablePath, RESOURCE_NAME_RE } from "./resource-files-shared";
 
 /**
  * Two-way FiveM agent (resource `fiverax_agent`).
@@ -339,6 +340,7 @@ export async function handleAgentCall(serverId: string, req: AgentRequest, now =
 // ---- actions queued from the panel ----
 
 const target = z.number().int().nonnegative();
+export const GAME_ACCOUNTS = ["cash", "bank", "black_money"] as const;
 const text = (max: number) => z.string().trim().min(1).max(max);
 
 /** Each action, the permission it needs and what it carries. */
@@ -365,6 +367,36 @@ export const COMMANDS = {
       resource: z.string().regex(RESOURCE_RE),
       files: z.array(z.object({ path: z.string().refine(isFilePath), content: z.string().max(LIMITS.fileBytes) })).min(1).max(LIMITS.files)
     })
+  },
+  /** Actions on a connected player (game.lua of the agent): money, items, job, revive, heal, teleport. */
+  game: {
+    permission: "player_manage",
+    schema: z.discriminatedUnion("op", [
+      z.object({ op: z.literal("info"), target }),
+      z.object({ op: z.enum(["give_money", "remove_money"]), target, account: z.enum(GAME_ACCOUNTS), amount: z.number().int().positive().max(100_000_000) }),
+      z.object({ op: z.enum(["give_item", "remove_item"]), target, item: z.string().regex(/^[\w-]{1,60}$/), count: z.number().int().positive().max(10_000) }),
+      z.object({ op: z.literal("set_job"), target, job: z.string().regex(/^[\w-]{1,50}$/), grade: z.number().int().min(0).max(100) }),
+      z.object({ op: z.enum(["revive", "heal"]), target }),
+      z.object({
+        op: z.literal("teleport"), target,
+        to: target.optional(),
+        x: z.number().min(-10_000).max(10_000).optional(), y: z.number().min(-10_000).max(10_000).optional(), z: z.number().min(-200).max(3000).optional()
+      })
+    ]).refine((p) => p.op !== "teleport" || p.to !== undefined || (p.x !== undefined && p.y !== undefined && p.z !== undefined), "destination")
+  },
+  /** Files of an existing resource for the AI assistant (files.js of the agent). Only queued by lib/resource-files.ts. */
+  files: {
+    permission: "server_files",
+    schema: z.discriminatedUnion("op", [
+      z.object({ op: z.literal("list"), resource: z.string().regex(RESOURCE_NAME_RE) }),
+      z.object({ op: z.literal("read"), resource: z.string().regex(RESOURCE_NAME_RE), paths: z.array(z.string().refine(isEditablePath)).min(1).max(FILE_LIMITS.readPaths) }),
+      z.object({
+        op: z.literal("write"),
+        resource: z.string().regex(RESOURCE_NAME_RE),
+        restart: z.boolean(),
+        files: z.array(z.object({ path: z.string().refine(isEditablePath), content: z.string().max(FILE_LIMITS.fileBytes).nullable(), expect: z.string().max(64) })).min(1).max(FILE_LIMITS.files)
+      })
+    ])
   }
 } satisfies Record<string, { permission: Permission; schema: z.ZodTypeAny }>;
 
@@ -382,7 +414,9 @@ const AUDIT_ACTION: Record<CommandKind, string> = {
   freeze: "player_freeze",
   console: "console_command",
   deploy: "studio_deploy",
-  audit: "audit_run"
+  audit: "audit_run",
+  files: "server_files",
+  game: "player_game"
 };
 
 type Actor = { discordId: string; username?: string | null };
@@ -402,6 +436,10 @@ export async function enqueueCommand(
     kind === "refresh" ? { action: "refresh" }
     : kind === "audit" ? {}
     : kind === "deploy" ? { resource: payload.resource, files: Array.isArray(payload.files) ? payload.files.length : 0 }
+    : kind === "files" ? {
+        op: payload.op, resource: payload.resource, restart: payload.restart,
+        paths: Array.isArray(payload.files) ? (payload.files as { path: string }[]).map((f) => f.path) : payload.paths
+      }
     : { ...payload, player: context.playerName ?? undefined };
   const [insert] = await db.batch([
     stmt("INSERT INTO fivem_commands (server_id, kind, payload, actor_discord_id, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id", [

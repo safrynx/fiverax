@@ -10,7 +10,7 @@ export const LOG_GROUPS: Record<string, { label: string; actions: string[] }> = 
   follow: { label: "Commentaires & pastilles", actions: ["note_create", "badge_create", "badge_resolve"] },
   access: { label: "Accès & rôles", actions: ["access_add", "access_remove", "access_permissions", "grade_role_add", "grade_role_remove", "warn_role_set"] },
   sync: { label: "Synchro, IA & reset", actions: ["staff_sync", "review_generate", "counters_reset"] },
-  fivem: { label: "Serveur FiveM", actions: ["player_kick", "player_message", "announce", "resource", "console_command", "player_screenshot"] },
+  fivem: { label: "Serveur FiveM", actions: ["player_kick", "player_message", "announce", "resource", "console_command", "player_screenshot", "server_files", "player_game"] },
   security: { label: "Sécurité", actions: ["player_ban", "player_unban", "anticheat_config", "antiraid_config", "antiraid_restore", "player_screen", "player_freeze", "discord_lockdown", "discord_unlock", "discord_backup", "discord_restore"] },
   audit: { label: "Scanner", actions: ["audit_run", "audit_settings"] },
   studio: { label: "Studio IA", actions: ["studio_create", "studio_delete", "studio_deploy"] },
@@ -50,6 +50,8 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
   announce: { label: "Annonce", tone: "info" },
   resource: { label: "Ressource", tone: "warn" },
   console_command: { label: "Console", tone: "warn" },
+  server_files: { label: "Fichiers (assistant IA)", tone: "warn" },
+  player_game: { label: "Action en jeu", tone: "warn" },
   player_screenshot: { label: "Capture d'écran", tone: "neutral" },
   player_ban: { label: "Ban", tone: "danger" },
   player_unban: { label: "Déban", tone: "up" },
@@ -159,6 +161,26 @@ function describe(action: string, d: Record<string, unknown>): string {
       return `${RESOURCE_VERBS[String(d.action)] ?? d.action}${d.name ? ` de ${d.name}` : ""}`;
     case "console_command":
       return `> ${String(d.command ?? "").slice(0, 200)}`;
+    case "player_game": {
+      const who = d.player ?? `#${d.target}`;
+      const acc = ({ cash: "liquide", bank: "banque", black_money: "argent sale" } as Record<string, string>)[String(d.account)] ?? d.account;
+      switch (d.op) {
+        case "give_money": return `+${Number(d.amount).toLocaleString("fr-FR")} $ (${acc}) à ${who}`;
+        case "remove_money": return `−${Number(d.amount).toLocaleString("fr-FR")} $ (${acc}) à ${who}`;
+        case "give_item": return `+${d.count}x ${d.item} à ${who}`;
+        case "remove_item": return `−${d.count}x ${d.item} à ${who}`;
+        case "set_job": return `${who} → job ${d.job} (grade ${d.grade})`;
+        case "revive": return `Réanimation de ${who}`;
+        case "heal": return `Soin de ${who}`;
+        case "teleport": return `Téléportation de ${who}${d.to !== undefined ? ` vers #${d.to}` : ` (${Math.round(Number(d.x))}, ${Math.round(Number(d.y))}, ${Math.round(Number(d.z))})`}`;
+        default: return `Infos de ${who}`;
+      }
+    }
+    case "server_files": {
+      const verb = d.op === "write" ? "Modification" : d.op === "list" ? "Liste des fichiers" : "Lecture";
+      const paths = Array.isArray(d.paths) ? ` : ${(d.paths as string[]).slice(0, 5).join(", ")}${d.paths.length > 5 ? "…" : ""}` : "";
+      return `${verb} de ${d.resource}${paths}${d.op === "write" && d.restart ? " · redémarrage" : ""}`;
+    }
     case "player_screenshot":
       return `${d.player ?? `#${d.target}`}`;
     case "player_ban":
