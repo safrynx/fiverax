@@ -22,6 +22,7 @@ export const PERMISSIONS = [
   { key: "console", label: "Console du serveur (commandes) et assistant IA", group: "Serveur FiveM" },
   { key: "player_manage", label: "Gérer les joueurs en jeu (argent, objets, job, réanimer, téléporter)", group: "Serveur FiveM" },
   { key: "server_files", label: "Laisser l'assistant IA lire et modifier les fichiers des ressources", group: "Serveur FiveM" },
+  { key: "reports", label: "Traiter les reports des joueurs et revoir les incidents (boîte noire)", group: "Serveur FiveM" },
   { key: "view_security", label: "Voir l'anticheat, les bans et l'anti-raid", group: "Sécurité" },
   { key: "ban", label: "Bannir / débannir des joueurs", group: "Sécurité" },
   { key: "screenshot", label: "Capturer l'écran d'un joueur", group: "Sécurité" },

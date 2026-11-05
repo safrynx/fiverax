@@ -8,6 +8,7 @@
 --   give_item / remove_item    item, count
 --   set_job                    job, grade
 --   revive / heal
+--   reward                     rewards = { {type = 'money', account, amount} | {type = 'item', item, count, label} }, message  (vote in the directory)
 --   teleport                   x, y, z  or  to (server id of another player)
 --
 -- server.cfg:
@@ -182,6 +183,32 @@ ops.teleport = function(src, p)
     local vehicle = GetVehiclePedIsIn(ped, false)
     SetEntityCoords(vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped and vehicle or ped, x + 0.0, y + 0.0, z + 0.0, false, false, false, false)
     return true, ('%s téléporté (%.0f, %.0f, %.0f)'):format(GetPlayerName(src), x, y, z)
+end
+
+-- Reward of a vote in the Fiverax directory: money and / or items, then a thank-you in the chat.
+-- Fails only when nothing could be given (character not loaded yet: the panel tries again later); once something was
+-- given it reports success, so a retry never gives twice.
+ops.reward = function(src, p)
+    local fw, player = needPlayer(src)
+    if not fw and not started('ox_inventory') then return false, player end
+    local given, failed = {}, {}
+    for _, r in ipairs(p.rewards or {}) do
+        local ok, message
+        if r.type == 'money' then
+            ok, message = changeMoney(src, { account = r.account, amount = r.amount }, true)
+            if ok then given[#given + 1] = money(r.amount) end
+        elseif r.type == 'item' then
+            ok, message = changeItem(src, { item = r.item, count = r.count }, true)
+            if ok then given[#given + 1] = ('%dx %s'):format(r.count, r.label or r.item) end
+        end
+        if not ok then failed[#failed + 1] = tostring(message) end
+    end
+    if #given == 0 then return false, failed[1] or 'Aucune récompense' end
+    local text = (p.message and p.message ~= '' and p.message or 'Merci pour ton vote !') .. ' Tu reçois : ' .. table.concat(given, ', ') .. '.'
+    TriggerClientEvent('chat:addMessage', src, { color = { 212, 176, 106 }, multiline = true, args = { 'Vote', text } })
+    local result = 'Récompense donnée à ' .. GetPlayerName(src) .. ' : ' .. table.concat(given, ', ')
+    if #failed > 0 then result = result .. ' (refusé : ' .. table.concat(failed, ' ; ') .. ')' end
+    return true, result
 end
 
 FVX.handlers = FVX.handlers or {}

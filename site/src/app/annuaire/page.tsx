@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 type Search = { q?: string; tag?: string; fw?: string; lang?: string; online?: string; sort?: string };
-const SORT_LABEL: Record<DirectorySort, string> = { relevance: "Pertinence", players: "Joueurs en ligne", rating: "Mieux notés", recent: "Nouveaux" };
+const SORT_LABEL: Record<DirectorySort, string> = { relevance: "Pertinence", players: "Joueurs en ligne", votes: "Plus votés ce mois", rating: "Mieux notés", recent: "Nouveaux" };
 
 export default async function DirectoryPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
@@ -84,11 +84,12 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
 
       <section className="dir-section">
         <header>
-          <h2>{filtered ? `${cards.length} résultat${cards.length > 1 ? "s" : ""}` : "Tous les serveurs"}</h2>
+          <h2>{filtered ? `${cards.length} résultat${cards.length > 1 ? "s" : ""}` : sort === "votes" ? "Classement des votes du mois" : "Tous les serveurs"}</h2>
+          {!filtered && <Link href="/joueur" className="linkish" style={{ fontSize: 13 }}>Ton espace joueur : temps de jeu, votes, sanctions</Link>}
         </header>
         {cards.length === 0
           ? <p className="dir-empty">{total === 0 ? "L'annuaire ouvre : les premiers serveurs arrivent." : "Aucun serveur ne correspond. Essaie d'enlever un filtre."}</p>
-          : <div className="dir-grid">{cards.map((c) => <ServerCard key={c.serverId} card={c} />)}</div>}
+          : <div className="dir-grid">{cards.map((c, i) => <ServerCard key={c.serverId} card={c} rank={sort === "votes" && c.votes > 0 ? i + 1 : undefined} />)}</div>}
       </section>
 
       <section className="dir-cta">

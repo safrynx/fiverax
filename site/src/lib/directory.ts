@@ -7,6 +7,7 @@ import {
   type DirectoryCard, type DirectorySort, type ListingInput, type LiveSummary, type PublicReview, type RatingSummary, type StatKind
 } from "./directory-shared";
 import { getServer, slugify, type Server } from "./servers";
+import { monthlyVotes } from "./votes";
 
 export { publishProblems };
 
@@ -164,14 +165,14 @@ export type DirectoryQuery = { q?: string; tag?: string; framework?: string; lan
 export async function listDirectory(query: DirectoryQuery = {}, now = new Date()): Promise<{ cards: DirectoryCard[]; featured: DirectoryCard[]; total: number }> {
   const rows = await db.all<ListingRow>("SELECT server_id, slug, data_json, published, published_at, updated_at FROM directory_listings WHERE published = 1");
   const ids = rows.map((r) => r.server_id);
-  const [live, ratings, featured] = await Promise.all([liveSummaries(ids, now), ratingSummaries(ids), featuredIds(now)]);
+  const [live, ratings, featured, votes] = await Promise.all([liveSummaries(ids, now), ratingSummaries(ids), featuredIds(now), monthlyVotes(now)]);
   const all: DirectoryCard[] = rows.map((row) => {
     const l = toListing(row, null);
     return {
       serverId: l.serverId, slug: l.slug, name: l.name, tagline: l.tagline, logoUrl: l.logoUrl || null, bannerUrl: l.bannerUrl || null,
       tags: l.tags ?? [], framework: l.framework, language: l.language, minAge: l.minAge, featured: featured.has(l.serverId),
       live: l.showPlayers === false ? null : live.get(l.serverId) ?? { online: false, players: 0, maxClients: 0, weekPlayers: 0 },
-      rating: ratings.get(l.serverId)!, publishedAt: l.publishedAt
+      rating: ratings.get(l.serverId)!, publishedAt: l.publishedAt, votes: votes.get(l.serverId) ?? 0
     };
   });
   const needle = query.q?.trim().toLowerCase();

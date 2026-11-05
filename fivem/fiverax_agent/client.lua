@@ -67,6 +67,25 @@ CreateThread(function()
     end
 end)
 
+-- Black box (blackbox.lua): this player's death, with who killed them and with what.
+CreateThread(function()
+    local dead = false
+    while true do
+        Wait(250)
+        local ped = PlayerPedId()
+        local now = IsEntityDead(ped) or IsPedFatallyInjured(ped)
+        if now and not dead then
+            local killer, source = 0, GetPedSourceOfDeath(ped)
+            if source ~= 0 and IsEntityAVehicle(source) then source = GetPedInVehicleSeat(source, -1) end
+            if source ~= 0 and source ~= ped and IsEntityAPed(source) and IsPedAPlayer(source) then
+                killer = GetPlayerServerId(NetworkGetPlayerIndexFromPed(source))
+            end
+            TriggerServerEvent('fiverax:bb:death', killer, GetPedCauseOfDeath(ped))
+        end
+        dead = now == true or now == 1
+    end
+end)
+
 -- Revive / heal asked from the panel (game.lua). The server allows the teleport that a resurrection looks like.
 RegisterNetEvent('fiverax:game:revive', function()
     local ped = PlayerPedId()

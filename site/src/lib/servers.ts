@@ -159,13 +159,18 @@ const SERVER_TABLES = [
   "screen_frames", "bot_actions", "discord_backups",
   "tebex_settings", "tebex_events", "tebex_disabled_packages", "store_sites", "store_versions",
   "studio_creations", "studio_versions", "audit_scans", "audit_settings",
-  "network_members", "network_ban_keys", "library_items", "library_reactions"
+  "network_members", "network_ban_keys", "library_items", "library_reactions",
+  "directory_listings", "directory_reviews", "directory_featured", "directory_stats",
+  "player_reports", "ban_appeals", "directory_votes", "directory_vote_settings"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */
 export async function deleteServer(id: string): Promise<boolean> {
   if (!(await getServer(id))) return false;
   await db.batch([
+    // Rows keyed by another table's id, removed before that table.
+    stmt("DELETE FROM report_captures WHERE report_id IN (SELECT id FROM player_reports WHERE server_id = ?)", [id]),
+    stmt("DELETE FROM directory_review_reports WHERE review_id IN (SELECT id FROM directory_reviews WHERE server_id = ?)", [id]),
     ...SERVER_TABLES.map((table) => stmt(`DELETE FROM ${table} WHERE server_id = ?`, [id])),
     stmt("DELETE FROM bot_status WHERE key LIKE ? OR key = ?", [`${id}:%`, `lock:review:${id}`]),
     stmt("DELETE FROM servers WHERE id = ?", [id])

@@ -315,19 +315,28 @@ export async function handleAgentCall(serverId: string, req: AgentRequest, now =
       )
     );
   }
+  // Answers to the rewards of votes (game/reward commands), and whether rewards wait for a player in game.
+  // (Imported here: lib/votes.ts queues its rewards through this file.)
+  const votes = await import("./votes");
+  if (req.results.length) writes.push(...votes.rewardResultStmts(serverId, req.results, now));
+  // The last four statements are read back below: keep them last and in this order.
   writes.push(
     stmt("UPDATE fivem_commands SET status = 'sent', sent_at = ? WHERE server_id = ? AND status = 'pending' RETURNING id, kind, payload", [iso(now), serverId]),
     stmt("SELECT watched_at FROM fivem_state WHERE server_id = ?", [serverId]),
-    stmt("SELECT rev FROM security_settings WHERE server_id = ?", [serverId])
+    stmt("SELECT rev FROM security_settings WHERE server_id = ?", [serverId]),
+    stmt("SELECT COUNT(*) AS n FROM directory_votes WHERE server_id = ? AND reward_status = 'pending'", [serverId])
   );
   const results = await db.batch(writes);
-  const claimed = results[results.length - 3].rows;
-  const watchedAt = results[results.length - 2].rows[0]?.watched_at as string | null | undefined;
-  const rev = Number(results[results.length - 1].rows[0]?.rev ?? 1);
+  const claimed = results[results.length - 4].rows;
+  const watchedAt = results[results.length - 3].rows[0]?.watched_at as string | null | undefined;
+  const rev = Number(results[results.length - 2].rows[0]?.rev ?? 1);
+  const rewardsWaiting = Number(results[results.length - 1].rows[0]?.n ?? 0);
 
   const commands = claimed
     .map((row) => ({ id: Number(row.id), kind: row.kind as CommandKind, payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
     .sort((a, b) => a.id - b.id);
+  // Fresh players list: hand the waiting rewards to voters now in game (picked up on the next call).
+  if (rewardsWaiting > 0 && req.state) await votes.deliverPendingRewards(serverId, now);
   const watched = Boolean(watchedAt && now.getTime() - new Date(watchedAt).getTime() < WATCH_MS);
   const response: AgentResponse = { ok: true, commands, interval: watched || commands.length ? FAST_INTERVAL : IDLE_INTERVAL, watch: watched };
   if (req.secRev !== rev) {
@@ -377,12 +386,29 @@ export const COMMANDS = {
       z.object({ op: z.enum(["give_item", "remove_item"]), target, item: z.string().regex(/^[\w-]{1,60}$/), count: z.number().int().positive().max(10_000) }),
       z.object({ op: z.literal("set_job"), target, job: z.string().regex(/^[\w-]{1,50}$/), grade: z.number().int().min(0).max(100) }),
       z.object({ op: z.enum(["revive", "heal"]), target }),
+      /** Reward of a vote in the directory (lib/votes.ts): money and / or items, then a thank-you in the chat. */
+      z.object({
+        op: z.literal("reward"), target, message: z.string().max(200).optional(),
+        rewards: z.array(z.discriminatedUnion("type", [
+          z.object({ type: z.literal("money"), account: z.enum(GAME_ACCOUNTS), amount: z.number().int().positive().max(10_000_000) }),
+          z.object({ type: z.literal("item"), item: z.string().regex(/^[\w-]{1,60}$/), label: z.string().max(40).optional(), count: z.number().int().positive().max(1000) })
+        ])).min(1).max(3)
+      }),
       z.object({
         op: z.literal("teleport"), target,
         to: target.optional(),
         x: z.number().min(-10_000).max(10_000).optional(), y: z.number().min(-10_000).max(10_000).optional(), z: z.number().min(-200).max(3000).optional()
       })
     ]).refine((p) => p.op !== "teleport" || p.to !== undefined || (p.x !== undefined && p.y !== undefined && p.z !== undefined), "destination")
+  },
+  /** Send the black box (blackbox.lua) of the last `seconds` to the panel, around a player (`center`, may have left). */
+  blackbox: {
+    permission: "reports",
+    schema: z.object({
+      seconds: z.number().int().min(30).max(900).optional(),
+      center: z.number().int().nonnegative().optional(),
+      reason: z.string().trim().max(300).optional()
+    })
   },
   /** Files of an existing resource for the AI assistant (files.js of the agent). Only queued by lib/resource-files.ts. */
   files: {
@@ -416,7 +442,8 @@ const AUDIT_ACTION: Record<CommandKind, string> = {
   deploy: "studio_deploy",
   audit: "audit_run",
   files: "server_files",
-  game: "player_game"
+  game: "player_game",
+  blackbox: "blackbox_capture"
 };
 
 type Actor = { discordId: string; username?: string | null };

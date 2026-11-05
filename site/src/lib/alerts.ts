@@ -49,3 +49,25 @@ export async function sendAnticheatAlert(settings: AnticheatSettings, serverName
     /* a down webhook must not break the anticheat */
   }
 }
+
+/** Reports made in game and ban appeals, posted to the same webhook (when one is set), whatever the minimum action. */
+export async function sendReportAlert(settings: AnticheatSettings, serverName: string, alert: { title: string; lines: string[]; url?: string | null }): Promise<void> {
+  if (!settings.alerts.webhookUrl) return;
+  const body = {
+    username: "Fiverax",
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: alert.title.slice(0, 200),
+      url: alert.url ?? undefined,
+      color: 0xd4b06a,
+      description: alert.lines.filter(Boolean).join("\n").slice(0, 3500),
+      footer: { text: serverName },
+      timestamp: new Date().toISOString()
+    }]
+  };
+  try {
+    await fetch(settings.alerts.webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  } catch {
+    /* best effort */
+  }
+}

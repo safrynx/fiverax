@@ -62,12 +62,26 @@ Page « Serveur FiveM > Assistant IA » (permission « Console du serveur et ass
 - **Annuler** : chaque modification appliquée garde le contenu d'avant et s'annule en un clic (historique en bas de la page).
 - `set fiverax_files 1` : l'IA peut lire mais pas modifier ; `set fiverax_files 0` : ni l'un ni l'autre.
 
+## Reports & boîte noire
+Page « Serveur FiveM > Reports & replays » (permission « Traiter les reports des joueurs et revoir les incidents »). Agent **3.7** (`blackbox.lua`).
+- **Boîte noire** : l'agent garde en mémoire les dernières minutes du serveur (`set fiverax_blackbox_seconds 300`, 60 à 900) : position, cap, vie, armure, véhicule, qui parle, radio et appel de chaque joueur toutes les 2 s, plus les coups et les morts entre joueurs (tueur et arme, signalés par le client de la victime), connexions, déconnexions et détections. Rien ne part tant qu'il n'y a pas d'incident. Aucun son.
+- **`/report [id] raison`** en jeu (nom de la commande : `set fiverax_report_command`, `""` pour aucune ; les scripts de report existants peuvent appeler `exports.fiverax_agent:report(source, cible, raison)`). 10 s plus tard, l'agent envoie la fenêtre au panel, limitée aux joueurs passés à moins de 300 m des personnes concernées. Le staff en jeu (`add_ace group.admin fiverax.staff allow`) est prévenu dans le chat, et le webhook d'alertes de l'anticheat reçoit le report. Un report toutes les 2 min par joueur.
+- **Captures** : « Capturer maintenant » (autour d'un joueur ou de tout le serveur) et, automatiquement, chaque kick ou ban de l'anticheat (3 dernières minutes).
+- **Replay** : carte avec lecture, vitesse ×1 à ×8, trajets, tirs (traits), morts (croix), détections, qui parle ; chronologie cliquable (tirs regroupés, armes nommées) ; distances entre les personnes concernées. Prise en charge, clôture avec une décision et une réponse au joueur, ban direct du signalé.
+- Les replays sont gardés 30 jours (gzip), les reports restent. `set fiverax_blackbox 0` désactive la boîte noire et `/report`.
+
+## Espace joueur
+`/joueur` : un joueur se connecte avec Discord et voit, sur chaque serveur où son Discord est relié à FiveM, son temps de jeu, ses sessions, ses bans (raison, durée), ses `/report` et la réponse du staff, ses votes et leurs récompenses. Jamais ses identifiants, son IP, les détections ni les notes du staff.
+- **Contester un ban** : une contestation à la fois par ban, 7 jours d'attente après un refus. Le staff la traite dans Reports & replays > Contestations de ban (permission « Bannir ») : accepter lève le ban, la réponse est lue par le joueur. Le webhook d'alertes reçoit chaque contestation.
+
 ## Annuaire public
 `/annuaire` liste les serveurs qui utilisent Fiverax : c'est une vitrine pour eux et un canal d'acquisition pour Fiverax (appels « Référencer mon serveur » sur chaque page, comptés).
 - **Fiche** (menu Réseau Fiverax > Fiche annuaire, permission « Gérer la fiche du serveur dans l'annuaire public ») : nom, adresse `/annuaire/<slug>`, accroche, présentation, logo, bannière, galerie, connexion FiveM (`cfx.re/join/…` ou `ip:port`), Discord, site, étiquettes, framework, langue, âge minimum. Aperçu avant publication ; publiable dès qu'il y a une accroche, une présentation et une connexion ou un Discord.
 - **En direct** : joueurs connectés (agent), joueurs différents sur 7 jours ; masquable.
 - **Avis vérifiés** : connexion Discord, au moins 1 h de jeu sur le serveur d'après les sessions de l'agent (compte Discord lié en jeu), jamais par le staff du serveur. Un avis par compte (modifiable), réponse publique du serveur. 3 signalements de comptes différents masquent l'avis jusqu'à la modération des admins de la plateforme (même page).
 - **Mise en avant** : créneaux « À la une » posés par les admins de la plateforme (`PANEL_OWNER_IDS`) pour l'instant ; le paiement viendra plus tard (`directory_featured.source`).
+- **Votes** : un vote par compte Discord et par serveur toutes les 2 h (la même règle pour tous, pour un classement juste), comptes Discord de plus de 30 jours, une seule adresse réseau par fenêtre (gardée hachée). Les votes du mois classent l'annuaire (« Top votes ») et comptent dans la pertinence.
+- **Récompenses de vote** (Fiche annuaire > Récompenses de vote) : jusqu'à 3 lignes argent (liquide, banque, argent sale) ou objets, données en jeu par l'agent 3.7 au joueur dont le Discord est relié à FiveM, une minute après sa connexion s'il n'était pas en jeu (attente maximale 7 jours). Un échec avant tout don est retenté (5 fois), un don n'est jamais refait.
 - **Statistiques** (30 jours) : vues de la fiche, clics Rejoindre, Discord, boutique, site. Données structurées (note moyenne) et `sitemap.xml` pour le référencement.
 
 ## Qui voit quoi

@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermissionApi } from "@/lib/auth";
 import { addFeatured, DirectoryError, removeFeatured, replyReview, saveListing, setPublished } from "@/lib/directory";
 import type { ServerRouteContext } from "@/lib/route";
+import { saveVoteSettings, VoteError } from "@/lib/votes";
 
 export const runtime = "nodejs";
 
 /**
  * The server's listing in the public directory (permission `directory_edit`).
  * POST ?action=save {listing} · publish · unpublish · reply {reviewId, reply} ·
- * feature {days, note} · unfeature {id} (these two: platform owners only, no payment yet).
+ * feature {days, note} · unfeature {id} (these two: platform owners only, no payment yet) · votes {settings} (rewards of the votes).
  */
 export async function POST(req: NextRequest, { params }: ServerRouteContext) {
   const guard = await requirePermissionApi((await params).serverId, "directory_edit");
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
       case "reply":
         await replyReview(server.id, actor, Number(body.reviewId), typeof body.reply === "string" ? body.reply : null);
         return NextResponse.json({ ok: true });
+      case "votes":
+        return NextResponse.json(await saveVoteSettings(server.id, actor, body.settings));
       case "feature":
       case "unfeature": {
         if (!user.platformOwner) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
         return NextResponse.json({ error: "validation" }, { status: 400 });
     }
   } catch (error) {
-    if (error instanceof DirectoryError) return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof DirectoryError || error instanceof VoteError) return NextResponse.json({ error: error.message }, { status: 409 });
     throw error;
   }
 }

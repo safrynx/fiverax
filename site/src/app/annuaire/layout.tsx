@@ -15,8 +15,9 @@ export default async function DirectoryLayout({ children }: { children: React.Re
           <nav>
             <Link href="/annuaire">Annuaire</Link>
             <Link href="/annuaire?sort=players">Les plus joués</Link>
+            <Link href="/annuaire?sort=votes">Top votes</Link>
             <Link href="/annuaire?sort=rating">Les mieux notés</Link>
-            <Link href="/">Fiverax pour ton serveur</Link>
+            <Link href="/joueur">Espace joueur</Link>
           </nav>
           {identity ? <Link href="/servers" className="btn sm">Dashboard</Link> : <CtaLink href="/login" className="btn sm">Ajouter mon serveur</CtaLink>}
         </div>
@@ -27,6 +28,7 @@ export default async function DirectoryLayout({ children }: { children: React.Re
           <Wordmark size={24} />
           <nav>
             <Link href="/annuaire">Annuaire des serveurs</Link>
+            <Link href="/joueur">Espace joueur</Link>
             <Link href="/">Fiverax</Link>
             <CtaLink href="/login">Référencer mon serveur</CtaLink>
           </nav>

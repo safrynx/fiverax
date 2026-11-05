@@ -17,9 +17,10 @@
 --   set fiverax_game 0                                # optional: the AI assistant may not give money / items / jobs (game.lua)
 --   set fiverax_files 1                               # optional: the AI assistant may read but not change files (0: neither)
 --   ensure screenshot-basic                           # optional: screenshots analysed by the AI
+--   add_ace group.admin fiverax.staff allow           # optional: receive the /report of the players in game (blackbox.lua)
 --   ensure fiverax_agent
 
-local VERSION = '3.6.0'
+local VERSION = '3.7.0'
 local RESOURCE = GetCurrentResourceName()
 
 -- The 1.x convars (gtasun_staff_api_url pointed at /api/fivem) still work.

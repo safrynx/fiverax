@@ -476,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 24);
+  assert.equal(Number(before), 25);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -2245,7 +2245,7 @@ test("directory: listing, publishing, verified reviews, reports, featured slots,
   // Order: featured first, then live players / rating.
   const card = (id: string, extra: Partial<import("../src/lib/directory-shared").DirectoryCard>) => ({
     serverId: id, slug: id, name: id, tagline: "", logoUrl: null, bannerUrl: null, tags: [], framework: "esx", language: "fr", minAge: 0, featured: false,
-    live: { online: false, players: 0, maxClients: 64, weekPlayers: 0 }, rating: { average: null, count: 0, distribution: [0, 0, 0, 0, 0] as [number, number, number, number, number] }, publishedAt: null, ...extra
+    live: { online: false, players: 0, maxClients: 64, weekPlayers: 0 }, rating: { average: null, count: 0, distribution: [0, 0, 0, 0, 0] as [number, number, number, number, number] }, publishedAt: null, votes: 0, ...extra
   });
   const sorted = shared.sortCards([
     card("calme", {}),
@@ -2256,4 +2256,214 @@ test("directory: listing, publishing, verified reviews, reports, featured slots,
 
   await dir.setPublished(S, actor, false);
   assert.equal((await dir.listDirectory()).total, 0);
+});
+
+// ---- black box, votes, player portal ----
+
+test("black box: weapon hashes, frames blended between samples, trails", async () => {
+  const bb = await import("../src/lib/blackbox-shared");
+  assert.equal(bb.joaat("WEAPON_PISTOL"), 453432689);
+  assert.equal(bb.weaponLabel(453432689), "Pistolet");
+  assert.equal(bb.weaponLabel(-1569615261), "Poings"); // signed hash, as Lua may send it
+  assert.equal(bb.weaponLabel(0), null);
+  const frames = [
+    { t: 100, p: [[1, 0, 0, 0, 350, 200, 0, 0, 0, 0, ""], [2, 50, 50, 0, 0, 200, 0, 1, 0, 0, ""]] },
+    { t: 102, p: [[1, 10, 20, 0, 10, 180, 0, 4, 0, 0, "Sultan"]] },
+    { t: 120, p: [[1, 500, 500, 0, 0, 100, 0, 2, 0, 0, ""]] }
+  ] as import("../src/lib/blackbox-shared").Frame[];
+  assert.equal(bb.frameIndexAt(frames, 99), -1);
+  assert.equal(bb.frameIndexAt(frames, 101), 0);
+  const mid = bb.playersAt(frames, 101);
+  assert.deepEqual([mid[0].x, mid[0].y, Math.round(mid[0].heading)], [5, 10, 360]); // shortest turn from 350 to 10
+  assert.equal(mid[1].talking, true);
+  const gap = bb.playersAt(frames, 110);
+  assert.deepEqual([gap[0].x, gap[0].inVehicle, gap[0].vehicle], [10, true, "Sultan"]); // 18 s gap: not blended
+  assert.equal(bb.playersAt(frames, 120)[0].dead, true);
+  assert.deepEqual(bb.trailOf(frames, 1, 100, 102), [[0, 0], [10, 20]]);
+});
+
+const BB = "bb-srv";
+
+test("black box: a /report upload becomes a report with its replay, idempotent, handled by the staff, seen by the reporter", async () => {
+  const bb = await import("../src/lib/blackbox");
+  const t = Math.floor(Date.now() / 1000) - 120;
+  const reporterDiscord = "950000000000000001";
+  await agentCall(BB, {
+    events: [
+      { type: "join", session: "r1", name: "Reporter", identifiers: ["license:rep", `discord:${reporterDiscord}`], timestamp: t - 600 },
+      { type: "join", session: "r2", name: "Cible", identifiers: ["license:cib"], timestamp: t - 600 }
+    ]
+  });
+  const raw = {
+    ref: "abc123-1", kind: "report", reason: "Il m'a tiré dessus sans raison", at: t,
+    reporter: { id: 1, name: "Reporter", session: "r1" }, target: { id: 2, name: "Cible", session: "r2" },
+    players: [{ id: 1, name: "Reporter", session: "r1" }, { id: 2, name: "Cible", session: "r2" }],
+    frames: [{ t: t - 4, p: [[1, 10.4, 20, 30, 90, 200, 50, 0, 0, 0, ""], [2, 15, 20, 30, 270, 200, 0, 1, 2.5, 0, ""]] }, { t: t - 2, p: {} }, { t: t - 6, p: [[1, 0, 0, 0]] }],
+    events: [{ t: t - 3, k: "hit", a: 2, b: 1, w: 453432689, d: 25 }, { t: t - 2, k: "death", a: 2, b: 1, w: 453432689 }, { t: t - 1, k: "nope" }]
+  };
+  assert.equal(bb.parseUpload({ ...raw, ref: "x" }), null); // bad ref
+  const up = bb.parseUpload(raw)!;
+  assert.deepEqual(up.frames.map((f) => f.t), [t - 6, t - 4, t - 2]); // sorted
+  assert.deepEqual(up.frames[0].p, []); // entries too short are dropped
+  assert.deepEqual(up.frames[1].p[1], [2, 15, 20, 30, 270, 200, 0, 1, 2.5, 0, ""]);
+  assert.equal(up.events.length, 2);
+
+  const first = await bb.ingestCapture(BB, up);
+  assert.equal(first.created, true);
+  assert.deepEqual(await bb.ingestCapture(BB, up), { id: first.id, created: false }); // the agent retried
+  const report = (await bb.getReport(BB, first.id))!;
+  assert.deepEqual([report.kind, report.status, report.reporterName, report.targetName, report.hasCapture, report.capturePlayers], ["report", "open", "Reporter", "Cible", true, 2]);
+  assert.ok(report.reporterPlayerId && report.targetPlayerId);
+  const capture = (await bb.getCapture(BB, first.id))!;
+  assert.deepEqual([capture.reporter, capture.target, capture.frames.length, capture.events[1].k], [1, 2, 3, "death"]);
+  assert.equal(capture.players.find((p) => p.id === 2)?.playerId, report.targetPlayerId);
+  assert.equal(await bb.getCapture("other", first.id), null); // another server cannot read it
+
+  const staff = { discordId: A, username: "Modo" };
+  assert.equal((await bb.updateReport(BB, staff, first.id, { action: "claim" })).claimedName, "Modo");
+  assert.deepEqual(await bb.countOpenReports(BB), { open: 0, claimed: 1 });
+  const closed = await bb.updateReport(BB, staff, first.id, { action: "close", outcome: "sanctioned", verdict: "Joueur banni 3 jours, merci !" });
+  assert.deepEqual([closed.status, closed.outcome], ["closed", "sanctioned"]);
+  const mine = await bb.reportsMadeBy(reporterDiscord);
+  assert.deepEqual(mine.map((r) => [r.id, r.status, r.verdict]), [[first.id, "closed", "Joueur banni 3 jours, merci !"]]);
+  assert.equal((await bb.listReports(BB, { status: "active" })).length, 0);
+  assert.equal((await bb.listReports(BB, { playerId: report.targetPlayerId! })).length, 1);
+
+  // Replays are dropped after 30 days, the reports stay.
+  assert.equal(await bb.pruneCaptures(new Date(Date.now() + 31 * 86_400_000)), 1);
+  assert.equal((await bb.getReport(BB, first.id))?.hasCapture, false);
+});
+
+test("black box: the panel asks the agent for a capture (command schema), manual uploads keep who asked", async () => {
+  const bb = await import("../src/lib/blackbox");
+  assert.equal(m.agent.COMMANDS.blackbox.schema.safeParse({ seconds: 10 }).success, false);
+  assert.equal(m.agent.COMMANDS.blackbox.schema.safeParse({ seconds: 120, center: 4, reason: "fusillade" }).success, true);
+  await agentCall(BB, { state: { hostname: "x", maxClients: 8, uptime: 1, players: [], resources: [] } });
+  const cmd = await m.agent.enqueueCommand(BB, { discordId: B, username: "b" }, "blackbox", { seconds: 120 });
+  const handed = await agentCall(BB, {});
+  assert.deepEqual(handed.commands.map((c) => c.kind), ["blackbox"]);
+  const now = Math.floor(Date.now() / 1000);
+  const up = bb.parseUpload({ ref: "manual-1", kind: "manual", command: cmd, at: now, players: [], frames: [{ t: now, p: [] }], events: [] })!;
+  const { id } = await bb.ingestCapture(BB, up);
+  const row = await db.get<{ requested_by: string; reason: string }>("SELECT requested_by, reason FROM player_reports WHERE id = ?", [id]);
+  assert.deepEqual([row?.requested_by, row?.reason], [B, "Capture demandée depuis le panel"]);
+});
+
+const oldDiscord = (n: number) => `10000000000000${String(n).padStart(4, "0")}`; // a 2015 account
+const youngDiscord = () => (BigInt(Date.now() - 1420070400000 - 86_400_000) * BigInt(4194304)).toString();
+
+test("votes: cooldown per account and per address, young accounts refused, monthly count and ranking", async () => {
+  const votes = await import("../src/lib/votes");
+  const shared = await import("../src/lib/votes-shared");
+  await db.run("INSERT INTO directory_listings (server_id, slug, data_json, published, updated_at) VALUES (?, 'vote-city', '{}', 1, ?)", [BB, new Date().toISOString()]);
+  assert.ok(shared.discordAccountCreatedAt(oldDiscord(1))!.getUTCFullYear() < 2017);
+  const now = new Date();
+  const v1 = { discordId: oldDiscord(1), username: "Voter1" };
+  const v2 = { discordId: oldDiscord(2), username: "Voter2" };
+
+  assert.equal((await votes.voteState(BB, null, true, now)).reason, "login");
+  await assert.rejects(votes.castVote("vote-city", { discordId: youngDiscord(), username: "Neuf" }, null, now), /vote_young_account/);
+  await assert.rejects(votes.castVote("inconnu", v1, null, now), /unknown_listing/);
+  const res = await votes.castVote("vote-city", v1, votes.ipHash("1.2.3.4"), now);
+  assert.deepEqual([res.reward, res.month], ["none", 1]); // no reward configured
+  await assert.rejects(votes.castVote("vote-city", v1, votes.ipHash("5.6.7.8"), new Date(now.getTime() + 3600_000)), /vote_cooldown/);
+  await assert.rejects(votes.castVote("vote-city", v2, votes.ipHash("1.2.3.4, 10.0.0.1"), new Date(now.getTime() + 60_000)), /vote_same_address/);
+  await votes.castVote("vote-city", v1, votes.ipHash("1.2.3.4"), new Date(now.getTime() + 2 * 3600_000 + 1000)); // cooldown over
+  const state = await votes.voteState(BB, v1, true, new Date(now.getTime() + 2 * 3600_000 + 2000));
+  assert.deepEqual([state.month, state.rank, state.canVote, state.reason], [2, 1, false, "cooldown"]);
+  assert.equal(votes.ipHash(null), null);
+  assert.notEqual(votes.ipHash("1.2.3.4"), "1.2.3.4");
+});
+
+test("votes: rewards wait for the player in game, go through the agent once, and are never given twice", async () => {
+  const votes = await import("../src/lib/votes");
+  const V = "vote-srv";
+  const voter = { discordId: oldDiscord(7), username: "Gamer" };
+  await db.run("INSERT INTO directory_listings (server_id, slug, data_json, published, updated_at) VALUES (?, 'reward-city', '{}', 1, ?)", [V, new Date().toISOString()]);
+  const owner = { discordId: A, username: "Owner" };
+  await assert.rejects(votes.saveVoteSettings(V, owner, { rewardsEnabled: true, rewards: [] }), /no_rewards/);
+  await assert.rejects(votes.saveVoteSettings(V, owner, { rewardsEnabled: true, rewards: [{ type: "money", account: "cash", amount: 0 }] }), /invalid_vote_settings/);
+  await votes.saveVoteSettings(V, owner, { rewardsEnabled: true, rewards: [{ type: "money", account: "bank", amount: 5000 }, { type: "item", item: "bread", label: "Pain", count: 3 }], message: "Merci !" });
+  assert.deepEqual((await votes.voteState(V, null, true)).rewards, ["5 000 $ (banque)", "3 × Pain"]);
+
+  // Never played there: the vote counts, no reward.
+  assert.equal((await votes.castVote("reward-city", voter, null)).reward, "no_player");
+
+  // Plays there now (Discord linked), connected for 5 min.
+  const t = Math.floor(Date.now() / 1000);
+  const voter2 = { discordId: oldDiscord(8), username: "Gamer2" };
+  const snapshot = (uptime: number) => ({ hostname: "x", maxClients: 8, uptime, players: [{ id: 5, name: "Gamer2", session: "g2", ping: 10 }], resources: [] });
+  await agentCall(V, {
+    events: [{ type: "join", session: "g2", name: "Gamer2", identifiers: ["license:g2", `discord:${voter2.discordId}`], timestamp: t - 300 }],
+    state: snapshot(1)
+  });
+  const cast = await votes.castVote("reward-city", voter2, null);
+  assert.equal(cast.reward, "sent");
+  const handed = await agentCall(V, {});
+  assert.equal(handed.commands.length, 1);
+  const cmd = handed.commands[0];
+  assert.deepEqual([cmd.kind, cmd.payload.op, cmd.payload.target, (cmd.payload.rewards as unknown[]).length], ["game", "reward", 5, 2]);
+  assert.equal(m.agent.COMMANDS.game.schema.safeParse(cmd.payload).success, true);
+
+  // The character was not loaded: back to waiting, then given on the next snapshot.
+  await agentCall(V, { results: [{ id: cmd.id, ok: false, message: "Le personnage du joueur n'est pas encore chargé" }] });
+  assert.equal((await db.get<{ reward_status: string }>("SELECT reward_status FROM directory_votes WHERE server_id = ? AND discord_id = ?", [V, voter2.discordId]))?.reward_status, "pending");
+  await agentCall(V, { state: snapshot(2) });
+  const retry = (await agentCall(V, {})).commands;
+  assert.equal(retry.length, 1);
+  await agentCall(V, { results: [{ id: retry[0].id, ok: true, message: "Récompense donnée" }] });
+  const done = await votes.votesBy(voter2.discordId);
+  assert.deepEqual([done[0].reward, done[0].rewards], ["delivered", ["5 000 $ (banque)", "3 × Pain"]]);
+  await agentCall(V, { state: snapshot(3) });
+  assert.deepEqual((await agentCall(V, {})).commands, []); // never given twice
+
+  const staff = await votes.votesForStaff(V);
+  assert.deepEqual([staff.month, staff.top.length], [2, 2]);
+});
+
+test("player portal: play time and sanctions across servers, ban appeal once at a time, accepted appeal lifts the ban", async () => {
+  const portal = await import("../src/lib/portal");
+  const P = "portal-srv";
+  const me = { discordId: oldDiscord(42), username: "Joueur" };
+  const t = Math.floor(Date.now() / 1000) - 7200;
+  await agentCall(P, { events: [{ type: "join", session: "j1", name: "John Doe", identifiers: ["license:jd", `discord:${me.discordId}`], timestamp: t }] });
+  await agentCall(P, { events: [{ type: "leave", session: "j1", timestamp: t + 1800 }] });
+  const pid = (await m.players.listPlayers(P, { q: "John" })).rows[0].id;
+  await m.security.banPlayer(P, { discordId: A, username: "Modo" }, { playerId: pid, reason: "Freekill", source: "manual", expiresAt: null });
+  const banId = (await m.security.listBans(P, { playerId: pid }))[0].id;
+
+  // P is not a registered server (no row in `servers`): the portal only lists real servers.
+  assert.equal((await portal.portalFor(me)).servers.length, 0);
+  const created = await m.servers.createServer({ name: "Portal City", guildId: "540000000000000042", createdBy: A });
+  assert.ok(created.ok);
+  const S2 = created.server.id;
+  await agentCall(S2, { events: [{ type: "join", session: "j2", name: "John Doe", identifiers: ["license:jd2", `discord:${me.discordId}`], timestamp: t }] });
+  await agentCall(S2, { events: [{ type: "leave", session: "j2", timestamp: t + 3600 }] });
+  const pid2 = (await m.players.listPlayers(S2, { q: "John" })).rows[0].id;
+  await m.security.banPlayer(S2, { discordId: A, username: "Modo" }, { playerId: pid2, reason: "Freekill", source: "manual", expiresAt: null });
+  const ban2 = (await m.security.listBans(S2, { playerId: pid2 }))[0].id;
+
+  const view = await portal.portalFor(me);
+  assert.deepEqual(view.servers.map((s) => [s.name, s.playSeconds, s.sessions, s.bans.length, s.bans[0].canAppeal]), [["Portal City", 3600, 1, 1, true]]);
+  assert.equal(view.totals.playSeconds, 3600);
+
+  await assert.rejects(portal.submitAppeal(me, S2, ban2, "trop court"), /invalid_appeal/);
+  await assert.rejects(portal.submitAppeal({ discordId: oldDiscord(43), username: "Autre" }, S2, ban2, "x".repeat(40)), /unknown_ban/); // not their ban
+  await assert.rejects(portal.submitAppeal(me, S2, banId, "x".repeat(40)), /unknown_ban/); // ban of another server
+  const appeal = await portal.submitAppeal(me, S2, ban2, "Je n'ai pas tiré le premier, regardez le replay du report s'il vous plaît.");
+  await assert.rejects(portal.submitAppeal(me, S2, ban2, "x".repeat(40)), /appeal_open/);
+  assert.equal(await portal.countOpenAppeals(S2), 1);
+
+  // Refused: the player waits 7 days before contesting again.
+  await portal.decideAppeal(S2, { discordId: A, username: "Modo" }, appeal, false, "Le replay montre l'inverse.");
+  await assert.rejects(portal.decideAppeal(S2, { discordId: A }, appeal, true, null), /appeal_decided/);
+  const refused = (await portal.portalFor(me)).servers[0].bans[0];
+  assert.deepEqual([refused.canAppeal, Boolean(refused.appealAfter), refused.appeals[0].response], [false, true, "Le replay montre l'inverse."]);
+  await assert.rejects(portal.submitAppeal(me, S2, ban2, "x".repeat(40)), /appeal_too_soon/);
+  const later = new Date(Date.now() + 8 * 86_400_000);
+  const second = await portal.submitAppeal(me, S2, ban2, "Nouvelle demande, une semaine plus tard, avec mes excuses.", later);
+  await portal.decideAppeal(S2, { discordId: A, username: "Modo" }, second, true, "Ok, dernière chance.", later);
+  assert.equal((await m.security.listBans(S2, { active: true, playerId: pid2 }, later)).length, 0); // ban lifted
+  assert.equal((await portal.listAppeals(S2, "all")).length, 2);
+  await m.servers.deleteServer(S2);
 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { avatarUrl, exchangeCode, fetchDiscordUser, fetchUserGuilds, getDiscordConfig } from "@/lib/discord";
 import { listAccessibleServers } from "@/lib/auth";
 import { refreshMemberships, storeUserGuilds } from "@/lib/memberships";
+import { isSafeNext } from "@/lib/next-url";
 import { encodeSession, sessionCookieName, SESSION_MAX_AGE, verifyAndConsumeState } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -44,9 +45,9 @@ export async function GET(req: NextRequest) {
   await refreshMemberships(identity, guilds.map((g) => g.id));
   const servers = await listAccessibleServers(identity);
 
-  // Back to the directory page they came from (to leave a review); else one server: straight to it; none or several: the list.
+  // Back to the public page they came from (review, vote, player portal); else one server: straight to it; none or several: the list.
   const next = req.cookies.get("fvx_next")?.value;
-  const target = next && /^\/annuaire(?:\/[a-z0-9-]{3,40})?(?:#avis)?$/.test(next) ? next : servers.length === 1 ? `/s/${servers[0].id}` : "/servers";
+  const target = isSafeNext(next) ? next : servers.length === 1 ? `/s/${servers[0].id}` : "/servers";
   const res = NextResponse.redirect(`${appUrl()}${target}`);
   if (next) res.cookies.delete("fvx_next");
   res.cookies.set(sessionCookieName, encodeSession(identity), {

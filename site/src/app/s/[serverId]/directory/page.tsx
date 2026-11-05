@@ -1,15 +1,17 @@
 import { requirePermissionPage } from "@/lib/auth";
 import { featuredSlots, getListing, publishProblems, reviewsForStaff, reviewsToModerate, statsFor } from "@/lib/directory";
 import Shell, { PageHead } from "@/app/shell";
+import { getVoteSettings, votesForStaff } from "@/lib/votes";
 import DirectoryEditor from "./directory-editor";
+import VotesEditor from "./votes-editor";
 
 export const dynamic = "force-dynamic";
 
 export default async function DirectoryAdminPage({ params }: { params: Promise<{ serverId: string }> }) {
   const { user, server } = await requirePermissionPage((await params).serverId, "directory_edit");
-  const [listing, stats, reviews, slots, moderation] = await Promise.all([
+  const [listing, stats, reviews, slots, moderation, voteSettings, votes] = await Promise.all([
     getListing(server.id), statsFor(server.id), reviewsForStaff(server.id), featuredSlots(server.id),
-    user.platformOwner ? reviewsToModerate() : Promise.resolve([])
+    user.platformOwner ? reviewsToModerate() : Promise.resolve([]), getVoteSettings(server.id), votesForStaff(server.id)
   ]);
 
   return (
@@ -27,6 +29,7 @@ export default async function DirectoryAdminPage({ params }: { params: Promise<{
         moderation={moderation}
         platformOwner={user.platformOwner}
       />
+      <VotesEditor initial={voteSettings} stats={votes} slug={listing.slug} published={listing.published} />
     </Shell>
   );
 }

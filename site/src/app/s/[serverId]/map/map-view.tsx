@@ -26,7 +26,7 @@ export function toMap(x: number, y: number): [number, number] {
   return [((0.02072 * x + 117.3) / 256) * 1000, ((-0.0205 * y + 172.8) / 256) * 1000];
 }
 
-const PLACES: [string, number, number][] = [
+export const PLACES: [string, number, number][] = [
   ["Los Santos", 150, -900], ["Vinewood", 300, 250], ["LSIA", -1100, -2800], ["Vespucci", -1300, -1300], ["Port de LS", 900, -3000],
   ["Mirror Park", 1100, -600], ["Chumash", -3150, 1000], ["Fort Zancudo", -2200, 3150], ["Sandy Shores", 1800, 3700], ["Alamo Sea", 900, 4100],
   ["Grapeseed", 1800, 4850], ["Mont Chiliad", 450, 5600], ["Paleto Bay", -200, 6400], ["Humane Labs", 3550, 3700], ["Centrale", 2700, 1550]

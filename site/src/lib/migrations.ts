@@ -856,6 +856,93 @@ const migrations: { name: string; sql: string }[] = [
         PRIMARY KEY (server_id, day, kind)
       )
     `
+  },
+  {
+    // Black box: reports made in game (/report), manual and anticheat captures, each with the replay of the minutes
+    // before (positions, hits, deaths, voice) kept gzipped in report_captures.
+    // Player portal: ban appeals. Directory: votes (one per account every few hours) and their in-game rewards.
+    name: "025_blackbox_portal_votes",
+    sql: `
+      CREATE TABLE IF NOT EXISTS player_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        reason TEXT NOT NULL,
+        reporter_player_id INTEGER,
+        reporter_name TEXT,
+        reporter_discord_id TEXT,
+        target_player_id INTEGER,
+        target_name TEXT,
+        detection TEXT,
+        requested_by TEXT,
+        created_at TEXT NOT NULL,
+        capture_from TEXT,
+        capture_to TEXT,
+        capture_players INTEGER NOT NULL DEFAULT 0,
+        capture_events INTEGER NOT NULL DEFAULT 0,
+        claimed_by TEXT,
+        claimed_name TEXT,
+        claimed_at TEXT,
+        closed_by TEXT,
+        closed_name TEXT,
+        closed_at TEXT,
+        outcome TEXT,
+        verdict TEXT,
+        UNIQUE (server_id, ref)
+      );
+      CREATE INDEX IF NOT EXISTS idx_player_reports ON player_reports(server_id, status, id);
+      CREATE INDEX IF NOT EXISTS idx_player_reports_reporter ON player_reports(reporter_discord_id);
+      CREATE TABLE IF NOT EXISTS report_captures (
+        report_id INTEGER PRIMARY KEY,
+        data BLOB NOT NULL,
+        bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS ban_appeals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        ban_id INTEGER NOT NULL,
+        player_id INTEGER,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        body TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        response TEXT,
+        decided_by TEXT,
+        decided_name TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_ban_appeals ON ban_appeals(server_id, status, id);
+      CREATE INDEX IF NOT EXISTS idx_ban_appeals_user ON ban_appeals(discord_id, ban_id);
+      CREATE TABLE IF NOT EXISTS directory_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        ip_hash TEXT,
+        voted_at TEXT NOT NULL,
+        player_id INTEGER,
+        reward_status TEXT NOT NULL DEFAULT 'none',
+        reward_json TEXT,
+        reward_command_id INTEGER,
+        reward_attempts INTEGER NOT NULL DEFAULT 0,
+        reward_note TEXT,
+        rewarded_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_directory_votes ON directory_votes(server_id, voted_at);
+      CREATE INDEX IF NOT EXISTS idx_directory_votes_user ON directory_votes(discord_id, server_id, voted_at);
+      CREATE INDEX IF NOT EXISTS idx_directory_votes_ip ON directory_votes(ip_hash, server_id, voted_at);
+      CREATE INDEX IF NOT EXISTS idx_directory_votes_reward ON directory_votes(server_id, reward_status);
+      CREATE TABLE IF NOT EXISTS directory_vote_settings (
+        server_id TEXT PRIMARY KEY,
+        settings_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      )
+    `
   }
 ];
 

@@ -7,7 +7,9 @@ import { getPublicListing, reviewEligibility } from "@/lib/directory";
 import { discordUrl, joinUrl, LANGUAGES, tagLabel } from "@/lib/directory-shared";
 import { frameworkLabel, LiveLine, Logo, Stars } from "../parts";
 import { CtaLink, TrackLink, TrackView } from "../track";
+import { voteState } from "@/lib/votes";
 import Reviews from "./reviews";
+import VoteBox from "./vote";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +54,10 @@ export default async function ListingPage(props: Params) {
   const { listing: l, live, rating } = data;
   const join = l.connect ? joinUrl(l.connect) : null;
   const discord = l.discord ? discordUrl(l.discord) : null;
-  const eligibility = await reviewEligibility(l.serverId, viewer);
+  const [eligibility, votes] = await Promise.all([
+    reviewEligibility(l.serverId, viewer),
+    voteState(l.serverId, viewer ? { discordId: viewer.discordId, username: viewer.username } : null, l.published)
+  ]);
   const lang = LANGUAGES.find((x) => x.key === l.language)?.label ?? l.language;
 
   // Rich result for search engines (aggregate rating only when there are reviews).
@@ -111,6 +116,7 @@ export default async function ListingPage(props: Params) {
         </div>
 
         <aside>
+          <VoteBox slug={l.slug} serverName={l.name} initial={votes} />
           {live && (
             <div className="dir-panel">
               <h2>En direct</h2>

@@ -87,3 +87,43 @@ a.dir-tag:hover, .dir-tag[data-on="true"] { color: var(--on-accent); background:
 .dir-star-input { display: inline-flex; gap: 4px; }
 .dir-star-input button { background: none; border: 0; padding: 2px; color: var(--line-2); cursor: pointer; }
 .dir-star-input button[data-on="true"] { color: var(--accent); }
+
+/* votes */
+.dir-vote { border-color: rgba(var(--accent-rgb), 0.45); background: radial-gradient(320px 160px at 100% 0%, rgba(var(--accent-rgb), 0.16), transparent 70%), var(--surface); }
+.dir-vote-count { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.dir-vote-rank { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 600; }
+.dir-vote-reward { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; font-size: 13px; color: var(--cream); }
+.dir-vote-reward svg { color: var(--accent); flex: none; margin-top: 2px; }
+.dir-rank { position: absolute; top: 10px; right: 10px; z-index: 1; padding: 3px 10px; border-radius: 999px; background: rgba(10, 8, 5, 0.85); border: 1px solid var(--line-2); font-family: var(--font-display); font-weight: 700; font-size: 13px; }
+.dir-rank[data-top="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+/* player portal (/joueur) */
+.pt-hero { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; padding-block: clamp(36px, 6vw, 64px) 10px; }
+.pt-hero img, .pt-hero .dir-avatar { width: 72px; height: 72px; border-radius: 50%; border: 3px solid rgba(var(--accent-rgb), 0.5); }
+.pt-hero h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4vw, 40px); letter-spacing: -0.03em; margin: 0; }
+.pt-hero p { margin: 6px 0 0; color: var(--muted); }
+.pt-servers { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.pt-server { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line-2); border-radius: 18px; background: var(--surface); align-content: start; }
+.pt-server header { display: flex; gap: 12px; align-items: center; }
+.pt-server header .dir-logo { width: 48px; height: 48px; border-radius: 12px; border-width: 0; font-size: 18px; }
+.pt-server h3 { font-family: var(--font-display); font-weight: 600; font-size: 17px; margin: 0; overflow-wrap: anywhere; }
+.pt-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pt-facts div { padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); }
+.pt-facts b { display: block; font-family: var(--font-display); font-size: 18px; }
+.pt-facts span { font-size: 11px; color: var(--muted); }
+.pt-ban { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(251, 113, 133, 0.35); background: rgba(251, 113, 133, 0.06); font-size: 13px; }
+.pt-ban[data-active="false"] { border-color: var(--line); background: transparent; }
+.pt-appeal { padding: 8px 12px; border-left: 2px solid var(--line-2); font-size: 13px; }
+.pt-appeal[data-status="accepted"] { border-color: var(--ok); }
+.pt-appeal[data-status="rejected"] { border-color: var(--bad); }
+.pt-appeal[data-status="open"] { border-color: var(--accent); }
+.pt-appeal p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pt-list { display: grid; gap: 0; border: 1px solid var(--line-2); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.pt-list > div { display: grid; gap: 4px; padding: 14px 16px; border-top: 1px solid var(--line); font-size: 14px; }
+.pt-list > div:first-child { border-top: 0; }
+.pt-row-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.pt-row-head .muted { font-size: 12px; }
+.pt-answer { margin: 6px 0 0; padding: 8px 12px; border-left: 2px solid var(--accent); background: rgba(var(--accent-rgb), 0.06); border-radius: 0 10px 10px 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pt-steps { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
+.pt-steps div { padding: 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); font-size: 14px; }
+.pt-steps b { display: block; font-family: var(--font-display); color: var(--accent); margin-bottom: 6px; }

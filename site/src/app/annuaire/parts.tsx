@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Star, Users } from "lucide-react";
+import { Star, ThumbsUp, Users } from "lucide-react";
 import { tagLabel, type DirectoryCard, type LiveSummary } from "@/lib/directory-shared";
 import { FRAMEWORKS } from "@/lib/studio-shared";
 
@@ -31,10 +31,11 @@ export function LiveLine({ live }: { live: LiveSummary | null }) {
   );
 }
 
-export function ServerCard({ card }: { card: DirectoryCard }) {
+export function ServerCard({ card, rank }: { card: DirectoryCard; rank?: number }) {
   return (
     <Link href={`/annuaire/${card.slug}`} className="dir-card" data-featured={card.featured}>
       {card.featured && <span className="dir-badge">À la une</span>}
+      {rank !== undefined && <span className="dir-rank" data-top={rank <= 3}>#{rank}</span>}
       <div className="dir-card-banner" style={card.bannerUrl ? { backgroundImage: `url("${card.bannerUrl.replace(/"/g, "")}")` } : undefined} />
       <div className="dir-card-body">
         <div className="dir-card-head">
@@ -46,6 +47,7 @@ export function ServerCard({ card }: { card: DirectoryCard }) {
           <LiveLine live={card.live} />
           {card.rating.count > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Stars value={card.rating.average ?? 0} size={12} /><b>{card.rating.average}</b> ({card.rating.count})</span>}
           {card.live && card.live.weekPlayers > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Users size={12} />{card.live.weekPlayers} cette semaine</span>}
+          {card.votes > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><ThumbsUp size={12} /><b>{card.votes}</b> vote{card.votes > 1 ? "s" : ""}</span>}
         </div>
         <div className="dir-meta">
           {card.framework !== "standalone" && <span className="dir-tag">{frameworkLabel(card.framework)}</span>}
