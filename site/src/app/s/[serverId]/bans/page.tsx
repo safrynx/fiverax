@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { isBanActive, listBans } from "@/lib/security";
 import { formatDateTime } from "@/lib/format";
 import Shell, { PageHead } from "@/app/shell";
+import { getMembership } from "@/lib/network";
+import { categoryLabel } from "@/lib/network-shared";
+import ShareButton from "./share-button";
 import UnbanButton from "./unban-button";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +32,13 @@ export default async function BansPage({ params, searchParams }: { params: Promi
   }
   const who = (id: string | null) => (!id ? "—" : id === "fiverax" ? "Fiverax" : names.get(id) ?? id);
   const canBan = can(user, "ban");
+  const member = Boolean(await getMembership(server.id));
 
   return (
     <Shell user={user} server={server} active="bans">
       <PageHead kicker={server.name} title="Bans">
         Appliqués par l&apos;agent à la connexion, sur la license Rockstar, les comptes liés et les identifiants matériels du joueur. Pour bannir quelqu&apos;un, ouvre sa fiche dans Joueurs.
+        {member ? " Les bans « Partagé » comptent pour les autres serveurs du réseau Fiverax." : ""}
       </PageHead>
 
       <form className="filters rise rise-1" action={base}>
@@ -49,9 +54,9 @@ export default async function BansPage({ params, searchParams }: { params: Promi
       {bans.length === 0 && <p className="muted" style={{ padding: "30px 0" }}>{q ? "Aucun ban trouvé." : "Aucun ban actif."}</p>}
       {bans.length > 0 && (
         <div className="tbl-wrap rise rise-2">
-          <table className="tbl" style={{ minWidth: 900 }}>
+          <table className="tbl" style={{ minWidth: 1080 }}>
             <thead>
-              <tr><th>Joueur</th><th>Raison</th><th>Par</th><th>Le</th><th>Fin</th><th>Statut</th>{canBan && <th />}</tr>
+              <tr><th>Joueur</th><th>Raison</th><th>Catégorie</th><th title="Visible par les autres serveurs du réseau Fiverax">Réseau</th><th>Par</th><th>Le</th><th>Fin</th><th>Statut</th>{canBan && <th />}</tr>
             </thead>
             <tbody>
               {bans.map((b, i) => {
@@ -61,6 +66,11 @@ export default async function BansPage({ params, searchParams }: { params: Promi
                   <tr key={b.id} className="row-in" style={{ ["--i" as string]: Math.min(i, 14) }}>
                     <td style={{ fontWeight: 600 }}>{b.playerId ? <Link href={`/s/${server.id}/players/${b.playerId}`}>{b.name}</Link> : b.name}</td>
                     <td style={{ maxWidth: 320 }}>{b.reason}</td>
+                    <td><span className="tag">{categoryLabel(b.category)}</span></td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <span className="muted" style={{ fontSize: 12, marginRight: 6 }}>{!member ? "—" : b.shared ? "Partagé" : "Privé"}</span>
+                      {canBan && member && active && <ShareButton banId={b.id} shared={b.shared} name={b.name} />}
+                    </td>
                     <td><span className="tag" data-tone={sourceTone}>{sourceLabel}</span> <span className="muted" style={{ fontSize: 12 }}>{b.source === "manual" ? b.authorName ?? who(b.authorId) : ""}</span></td>
                     <td className="num-cell muted" style={{ whiteSpace: "nowrap" }}>{formatDateTime(b.createdAt)}</td>
                     <td className="num-cell" style={{ whiteSpace: "nowrap" }}>{b.expiresAt ? formatDateTime(b.expiresAt) : "Définitif"}</td>

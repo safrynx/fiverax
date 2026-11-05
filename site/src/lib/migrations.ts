@@ -688,6 +688,68 @@ const migrations: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_store_versions ON store_versions(server_id, id)
     `
+  },
+  {
+    // Fiverax network: servers that share their bans (reputation of a player across servers, matched on hashed
+    // identifiers only), and the library of Studio creations published for every server.
+    name: "022_network",
+    sql: `
+      CREATE TABLE IF NOT EXISTS network_members (
+        server_id TEXT PRIMARY KEY,
+        settings_json TEXT NOT NULL DEFAULT '{}',
+        joined_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS network_ban_keys (
+        ban_id INTEGER NOT NULL,
+        server_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        PRIMARY KEY (ban_id, key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_network_ban_keys ON network_ban_keys(key);
+      ALTER TABLE bans ADD COLUMN category TEXT NOT NULL DEFAULT 'cheat';
+      ALTER TABLE bans ADD COLUMN shared INTEGER NOT NULL DEFAULT 1;
+      CREATE TABLE IF NOT EXISTS library_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        creation_id INTEGER,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        framework TEXT NOT NULL DEFAULT 'standalone',
+        resource TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        changelog TEXT,
+        files_json TEXT NOT NULL,
+        data_json TEXT NOT NULL DEFAULT '{}',
+        findings_json TEXT NOT NULL DEFAULT '[]',
+        risk TEXT NOT NULL DEFAULT 'ok',
+        author_discord_id TEXT NOT NULL,
+        author_name TEXT,
+        installs INTEGER NOT NULL DEFAULT 0,
+        likes INTEGER NOT NULL DEFAULT 0,
+        reports INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'published',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_library_items ON library_items(status, kind, updated_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_library_creation ON library_items(server_id, creation_id);
+      CREATE TABLE IF NOT EXISTS library_reactions (
+        item_id INTEGER NOT NULL,
+        server_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        reason TEXT,
+        actor_discord_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (item_id, server_id, kind)
+      );
+      CREATE INDEX IF NOT EXISTS idx_library_reactions_server ON library_reactions(server_id);
+      ALTER TABLE studio_creations ADD COLUMN library_item_id INTEGER;
+      ALTER TABLE studio_creations ADD COLUMN library_version INTEGER
+    `
   }
 ];
 

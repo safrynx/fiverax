@@ -45,7 +45,9 @@ export const DETECTIONS = [
 
 export type DetectionKind = (typeof DETECTIONS)[number]["key"];
 export const DETECTION_KINDS = DETECTIONS.map((d) => d.key) as [DetectionKind, ...DetectionKind[]];
-export const detectionLabel = (kind: string) => DETECTIONS.find((d) => d.key === kind)?.label ?? kind;
+/** Entries of the detections journal that are not anticheat detections (no setting of their own). */
+const OTHER_LABELS: Record<string, string> = { network_flag: "Signalé par le réseau Fiverax", network_refused: "Refusé par le réseau Fiverax" };
+export const detectionLabel = (kind: string) => DETECTIONS.find((d) => d.key === kind)?.label ?? OTHER_LABELS[kind] ?? kind;
 
 /**
  * Events cheat menus fire blindly (money exploits of old resources). The agent ignores an event whose prefix is the

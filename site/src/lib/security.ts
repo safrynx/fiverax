@@ -1,5 +1,7 @@
 import { auditStmt } from "./audit";
 import { db, stmt, type Stmt } from "./db";
+import { latestBanKeysStmt } from "./network-keys";
+import { isBanCategory, type BanCategory } from "./network-shared";
 import { anticheatSchema, antiraidSchema, detectionLabel, type AnticheatSettings, type AntiraidSettings } from "./security-config";
 
 /**
@@ -66,6 +68,10 @@ export type Ban = {
   tokens: string[];
   reason: string;
   source: "manual" | "anticheat" | "ai";
+  /** Category shown to the Fiverax network. */
+  category: BanCategory;
+  /** Visible to the other servers of the network (when this server is a member). */
+  shared: boolean;
   authorId: string | null;
   authorName: string | null;
   createdAt: string;
@@ -75,7 +81,7 @@ export type Ban = {
 };
 
 type BanRow = {
-  id: number; player_id: number | null; name: string; identifiers_json: string; tokens_json: string; reason: string; source: Ban["source"];
+  id: number; player_id: number | null; name: string; identifiers_json: string; tokens_json: string; reason: string; source: Ban["source"]; category: string; shared: number;
   author_discord_id: string | null; author_name: string | null; created_at: string; expires_at: string | null; revoked_at: string | null; revoked_by: string | null;
 };
 
@@ -86,7 +92,7 @@ const list = (raw: string): string[] => {
 
 const toBan = (r: BanRow): Ban => ({
   id: r.id, playerId: r.player_id, name: r.name, identifiers: list(r.identifiers_json), tokens: list(r.tokens_json), reason: r.reason,
-  source: r.source, authorId: r.author_discord_id, authorName: r.author_name, createdAt: r.created_at, expiresAt: r.expires_at, revokedAt: r.revoked_at, revokedBy: r.revoked_by
+  source: r.source, category: isBanCategory(r.category) ? r.category : "other", shared: Boolean(r.shared), authorId: r.author_discord_id, authorName: r.author_name, createdAt: r.created_at, expiresAt: r.expires_at, revokedAt: r.revoked_at, revokedBy: r.revoked_by
 });
 
 export const isBanActive = (b: Pick<Ban, "revokedAt" | "expiresAt">, now = new Date()) => !b.revokedAt && (!b.expiresAt || new Date(b.expiresAt) > now);
@@ -101,6 +107,10 @@ type NewBan = {
   /** null: permanent */
   expiresAt: string | null;
   detectionId?: number | null;
+  /** Default: "cheat" for the anticheat and the AI, "other" for a staff ban. */
+  category?: BanCategory;
+  /** Default: shared with the network. */
+  shared?: boolean;
 };
 
 /** Statements banning a known player (their identifiers and hardware tokens as last seen). Null when unknown. */
@@ -111,14 +121,18 @@ async function banStatements(serverId: string, actor: Actor, ban: NewBan, now: D
   );
   if (!player) return null;
   const identifiers = list(player.identifiers_json).filter((id) => BANNABLE.test(id));
+  const category = ban.category ?? (ban.source === "manual" ? "other" : "cheat");
+  const keys = latestBanKeysStmt(serverId, identifiers, list(player.tokens_json));
   return [
     stmt(
-      `INSERT INTO bans (server_id, player_id, name, identifiers_json, tokens_json, reason, source, detection_id, author_discord_id, author_name, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [serverId, player.id, player.name, JSON.stringify(identifiers), player.tokens_json, ban.reason, ban.source, ban.detectionId ?? null, actor.discordId, actor.username ?? null, iso(now), ban.expiresAt]
+      `INSERT INTO bans (server_id, player_id, name, identifiers_json, tokens_json, reason, source, category, shared, detection_id, author_discord_id, author_name, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [serverId, player.id, player.name, JSON.stringify(identifiers), player.tokens_json, ban.reason, ban.source, category, ban.shared === false ? 0 : 1, ban.detectionId ?? null, actor.discordId, actor.username ?? null, iso(now), ban.expiresAt]
     ),
+    // Hashed keys for the network, right after the insert (they point at the newest ban of the server).
+    ...(keys ? [keys] : []),
     bumpRevStmt(serverId, now),
-    auditStmt(serverId, actor, "player_ban", player.discord_id, { player: player.name, reason: ban.reason, expiresAt: ban.expiresAt, source: ban.source })
+    auditStmt(serverId, actor, "player_ban", player.discord_id, { player: player.name, reason: ban.reason, expiresAt: ban.expiresAt, source: ban.source, category, shared: ban.shared !== false })
   ];
 }
 
@@ -136,6 +150,19 @@ export async function revokeBan(serverId: string, actor: Actor, banId: number, n
     stmt("UPDATE bans SET revoked_at = ?, revoked_by = ? WHERE server_id = ? AND id = ?", [iso(now), actor.discordId, serverId, banId]),
     bumpRevStmt(serverId, now),
     auditStmt(serverId, actor, "player_unban", null, { player: ban.name })
+  ]);
+  return true;
+}
+
+/** Share a ban with the network or keep it to this server (and fix its category). */
+export async function setBanSharing(serverId: string, actor: Actor, banId: number, change: { shared?: boolean; category?: BanCategory }): Promise<boolean> {
+  const ban = await db.get<{ name: string; shared: number; category: string }>("SELECT name, shared, category FROM bans WHERE server_id = ? AND id = ?", [serverId, banId]);
+  if (!ban) return false;
+  const shared = change.shared ?? Boolean(ban.shared);
+  const category = change.category ?? ban.category;
+  await db.batch([
+    stmt("UPDATE bans SET shared = ?, category = ? WHERE server_id = ? AND id = ?", [shared ? 1 : 0, category, serverId, banId]),
+    auditStmt(serverId, actor, "ban_sharing", null, { player: ban.name, shared, category })
   ]);
   return true;
 }

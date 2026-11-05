@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { describeApiError, useServerPaths, useUI } from "@/app/ui";
+import { BAN_CATEGORIES } from "@/lib/network-shared";
 
 /** POST /api/s/:id/security?kind=…, with a toast on success or failure. Resolves with the answer, or null. */
 export function useSecurityAction() {
@@ -47,11 +48,18 @@ export function useBanDialog() {
         message: "Le ban porte sur sa license Rockstar, ses comptes liés (Discord, Steam…) et ses identifiants matériels. Durée : ajoute « 3j », « 12h » ou « 1sem » à la fin de la raison (définitif sinon).",
         confirmLabel: "Bannir",
         danger: true,
-        input: { label: "Raison", required: true, placeholder: "Ex. : cheat (menu visible), 3j" }
+        input: { label: "Raison", required: true, placeholder: "Ex. : cheat (menu visible), 3j" },
+        select: { label: "Catégorie", options: BAN_CATEGORIES.map((c) => ({ value: c.key, label: `${c.label} — ${c.hint}` })), initial: "cheat" },
+        check: {
+          label: "Partager avec le réseau Fiverax",
+          hint: "Les autres serveurs du réseau voient ce ban (pseudo, raison, catégorie), jamais ses identifiants. Sans effet si ton serveur n'est pas membre.",
+          initial: true
+        }
       });
       if (!answer) return false;
       const { reason, hours } = parseBanInput(answer.value);
-      return Boolean(await run("ban", { playerId, reason, hours }, hours ? `${name} banni pour ${formatHours(hours)}` : `${name} banni définitivement`));
+      const payload = { playerId, reason, hours, category: answer.choice ?? "other", shared: answer.checked !== false };
+      return Boolean(await run("ban", payload, hours ? `${name} banni pour ${formatHours(hours)}` : `${name} banni définitivement`));
     },
     [ask, run]
   );

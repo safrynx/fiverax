@@ -1,7 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Code2, Download, FilePlus2, History, Info, Pencil, Puzzle, Rocket, Save, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Code2, Download, FilePlus2, History, Info, Library, Pencil, Puzzle, Rocket, Save, Share2, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import type { LibraryLink } from "@/lib/library";
 import type { Creation, CreationData } from "@/lib/studio";
 import { checkFiles, cleanMap, FRAMEWORKS, isFilePath, KIND_META, mapFiles, type Check, type MapData, type StudioFile } from "@/lib/studio-shared";
 import { blocksFiles, STARTER_BLOCKS } from "@/lib/studio-blocks";
@@ -13,12 +15,17 @@ import BlockEditor from "./block-editor";
 import CodeEditor from "./code-editor";
 import DeployTag from "./deploy-tag";
 import MapEditor from "./map-editor";
+import PublishDialog from "./publish-dialog";
 import UIBuilder from "./ui-builder";
 import UIPreview from "./ui-preview";
 
 type Props = {
   initial: Creation;
   canDeploy: boolean;
+  /** May publish to the network library. */
+  canPublish: boolean;
+  /** Installed from the library (update available?) or published to it. */
+  library: LibraryLink;
   online: boolean;
   aiReady: boolean;
   players: { id: number; name: string; pos: [number, number, number] }[];
@@ -30,13 +37,13 @@ const SUGGESTIONS = {
   map: ["Ajoute de l'éclairage", "Ajoute des barrières tout autour", "Aligne la scène sur un axe est-ouest", "Rends la scène deux fois plus grande"]
 } as const;
 
-const SOURCE_LABEL = { ai: "IA", manual: "Modification", restore: "Restauration", create: "Création" } as const;
+const SOURCE_LABEL = { ai: "IA", manual: "Modification", restore: "Restauration", create: "Création", library: "Bibliothèque" } as const;
 const VISUAL_LABEL = { ui: "Simple", script: "Blocs", map: "" } as const;
 
 const firstTab = (c: Creation) =>
   c.kind === "map" ? "map" : c.data.mode === "visual" ? "visual" : c.kind === "ui" ? "preview" : c.files[0] ? `file:${c.files[0].path}` : "checks";
 
-export default function StudioEditor({ initial, canDeploy, online, aiReady, players }: Props) {
+export default function StudioEditor({ initial, canDeploy, canPublish, library, online, aiReady, players }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -53,6 +60,8 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
   const [generating, setGenerating] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [publishing, setPublishing] = useState(false);
+  const [link, setLink] = useState<LibraryLink>(library);
   const chatEnd = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
@@ -215,6 +224,28 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
     }
   }
 
+  async function openPublish() {
+    if (errors > 0) return toast("Corrige d'abord les erreurs (onglet Vérifications) : une création publiée doit fonctionner.", "error");
+    if (dirty && !(await save())) return;
+    setPublishing(true);
+  }
+
+  async function updateFromLibrary() {
+    if (link?.role !== "installed") return;
+    const ok = await ask({
+      title: `Passer à la version ${link.latestVersion} ?`,
+      message: "Les fichiers sont remplacés par ceux de la nouvelle version : tes modifications locales sont écrasées (elles restent dans l'historique, bouton Restaurer).",
+      confirmLabel: "Mettre à jour"
+    });
+    if (!ok) return;
+    if (dirty && !(await save("Avant la mise à jour depuis la bibliothèque"))) return;
+    const body = await call(paths.api("library?kind=update"), { method: "POST", body: JSON.stringify({ creationId: creation.id }) });
+    if (!body) return;
+    load(body.creation as Creation);
+    setLink({ ...link, installedVersion: link.latestVersion, available: false });
+    toast(`Version ${link.latestVersion} installée : déploie-la pour l'envoyer sur le serveur.`, "ok");
+  }
+
   async function rename() {
     const answer = await ask({ title: "Renommer", input: { label: "Nom", initial: creation.name, required: true } });
     if (!answer || answer.value.length < 2) return;
@@ -328,6 +359,11 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
           ) : (
             <a className="btn" href={`${api}/zip`} download><Download size={14} />.zip</a>
           )}
+          {canPublish && link?.role !== "installed" && (
+            <button className="btn" disabled={busy || shown.length === 0} title="Partager avec les autres serveurs Fiverax" onClick={openPublish}>
+              <Share2 size={14} />{link?.role === "published" ? `Publier la v${link.version + 1}` : "Publier"}
+            </button>
+          )}
           {canDeploy && (
             <button className="btn primary" disabled={busy || !online || shown.length === 0} title={online ? "Écrit la ressource sur le serveur FiveM et la (re)démarre" : "Serveur FiveM hors ligne"} onClick={deploy}>
               <Rocket size={14} />Déployer
@@ -336,6 +372,41 @@ export default function StudioEditor({ initial, canDeploy, online, aiReady, play
           <button className="ibtn bad" title="Supprimer la création" onClick={remove}><Trash2 size={13} /></button>
         </div>
       </div>
+
+      {link?.role === "installed" && (
+        <div className="banner" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <Library size={13} /> Installée depuis la <Link href={paths.page(`/library/${link.itemId}`)} className="linkish">bibliothèque</Link> : « {link.title} » de <b>{link.serverName}</b>, v{link.installedVersion}.
+            {link.available && <> La <b>v{link.latestVersion}</b> est disponible.</>}
+          </span>
+          {link.available && <button className="btn" disabled={busy} onClick={updateFromLibrary}><Download size={14} />Mettre à jour</button>}
+        </div>
+      )}
+      {link?.role === "published" && (
+        <p className="muted rise" style={{ fontSize: 12.5, margin: "-10px 0 16px", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <Library size={12} /> Publiée dans la <Link href={paths.page(`/library/${link.itemId}`)} className="linkish">bibliothèque</Link> · v{link.version} · {link.installs} installation(s) · {link.likes} j&apos;aime
+          {link.status === "hidden" && <> · <span className="tag" data-tone="warn">masquée après des signalements</span></>}
+          {" "}· tes modifications ne sont partagées qu&apos;à la prochaine publication.
+        </p>
+      )}
+      {publishing && (
+        <PublishDialog
+          creationId={creation.id}
+          initial={link?.role === "published"
+            ? { title: link.title, description: link.description, tags: link.tags.join(", ") }
+            : { title: creation.name, description: "", tags: kind === "map" ? "mapping" : "" }}
+          nextVersion={link?.role === "published" ? link.version + 1 : null}
+          onClose={() => setPublishing(false)}
+          onDone={({ id, version, title, description, tags }) => {
+            setPublishing(false);
+            setLink(link?.role === "published"
+              ? { ...link, version, title, description, tags, status: "published" }
+              : { role: "published", itemId: id, version, installs: 0, likes: 0, status: "published", title, description, tags });
+            toast(version > 1 ? `Version ${version} publiée : les serveurs qui l'ont installée la verront.` : "Publiée : tous les serveurs Fiverax peuvent l'installer.", "ok");
+            router.refresh();
+          }}
+        />
+      )}
 
       <div className="studio rise rise-1">
         <aside className="studio-chat">

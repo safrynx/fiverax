@@ -17,10 +17,10 @@ export type PlayerRow = {
 
 type Raw = {
   id: number; name: string; license: string; discord_id: string | null; first_seen_at: string; last_seen_at: string;
-  connections: number; play_seconds: number; online: number; staff_name: string | null; staff_grade: string | null; identifiers_json: string;
+  connections: number; play_seconds: number; online: number; staff_name: string | null; staff_grade: string | null; identifiers_json: string; tokens_json?: string;
 };
 
-const SELECT = `SELECT p.id, p.name, p.license, p.discord_id, p.first_seen_at, p.last_seen_at, p.identifiers_json,
+const SELECT = `SELECT p.id, p.name, p.license, p.discord_id, p.first_seen_at, p.last_seen_at, p.identifiers_json, p.tokens_json,
     (SELECT COUNT(*) FROM player_sessions s WHERE s.player_id = p.id) AS connections,
     (SELECT COALESCE(SUM(s.seconds), 0) FROM player_sessions s WHERE s.player_id = p.id) AS play_seconds,
     EXISTS (SELECT 1 FROM player_sessions s WHERE s.player_id = p.id AND s.ended_at IS NULL) AS online,
@@ -55,7 +55,8 @@ export async function listPlayers(serverId: string, opts: { q?: string; limit?: 
 
 export type PlayerSession = { id: number; startedAt: string; endedAt: string | null; seconds: number; leaveReason: string | null };
 
-export type PlayerDetail = PlayerRow & { identifiers: string[]; sessions: PlayerSession[] };
+/** `tokens`: hardware tokens as last seen (never shown, used to match bans and the Fiverax network). */
+export type PlayerDetail = PlayerRow & { identifiers: string[]; tokens: string[]; sessions: PlayerSession[] };
 
 export async function getPlayer(serverId: string, id: number): Promise<PlayerDetail | null> {
   const raw = await db.get<Raw>(`${SELECT} WHERE p.server_id = ? AND p.id = ?`, [serverId, id]);
@@ -66,9 +67,12 @@ export async function getPlayer(serverId: string, id: number): Promise<PlayerDet
   );
   let identifiers: string[] = [];
   try { identifiers = JSON.parse(raw.identifiers_json) as string[]; } catch { /* keep empty */ }
+  let tokens: string[] = [];
+  try { tokens = JSON.parse(raw.tokens_json ?? "[]") as string[]; } catch { /* keep empty */ }
   return {
     ...toRow(raw),
     identifiers,
+    tokens,
     sessions: sessions.map((s) => ({ id: s.id, startedAt: s.started_at, endedAt: s.ended_at, seconds: s.seconds, leaveReason: s.leave_reason }))
   };
 }

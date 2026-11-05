@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { categoryLabel, NETWORK_MODES } from "./network-shared";
 import { PERMISSIONS } from "./permissions";
 
 export type LogTone = "up" | "down" | "danger" | "warn" | "info" | "neutral";
@@ -13,6 +14,7 @@ export const LOG_GROUPS: Record<string, { label: string; actions: string[] }> = 
   security: { label: "Sécurité", actions: ["player_ban", "player_unban", "anticheat_config", "antiraid_config", "antiraid_restore", "player_screen", "player_freeze", "discord_lockdown", "discord_unlock", "discord_backup", "discord_restore"] },
   audit: { label: "Scanner", actions: ["audit_run", "audit_settings"] },
   studio: { label: "Studio IA", actions: ["studio_create", "studio_delete", "studio_deploy"] },
+  network: { label: "Réseau Fiverax", actions: ["network_join", "network_settings", "network_leave", "ban_sharing", "library_publish", "library_unpublish", "library_install", "library_update", "library_report"] },
   shop: { label: "Boutique", actions: ["shop_config", "shop_webhook_rotate", "shop_payment_note", "shop_payment_status", "shop_manual_payment", "shop_package", "shop_checkout", "shop_coupon_create", "shop_coupon_delete", "shop_giftcard_create", "shop_giftcard_void", "shop_giftcard_topup", "shop_ban"] },
   store: { label: "Store Creator", actions: ["store_publish", "store_unpublish", "store_slug", "store_restore", "store_ai"] },
   server: { label: "Serveur", actions: ["server_create","server_update", "owner_add", "owner_remove", "fivem_token_rotate"] }
@@ -65,6 +67,15 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
   studio_create: { label: "Studio : création", tone: "info" },
   studio_delete: { label: "Studio : suppression", tone: "danger" },
   studio_deploy: { label: "Studio : déploiement", tone: "warn" },
+  network_join: { label: "Réseau : adhésion", tone: "up" },
+  network_settings: { label: "Réseau : réglages", tone: "warn" },
+  network_leave: { label: "Réseau : départ", tone: "danger" },
+  ban_sharing: { label: "Partage d'un ban", tone: "info" },
+  library_publish: { label: "Bibliothèque : publication", tone: "up" },
+  library_unpublish: { label: "Bibliothèque : retrait", tone: "danger" },
+  library_install: { label: "Bibliothèque : installation", tone: "info" },
+  library_update: { label: "Bibliothèque : mise à jour", tone: "info" },
+  library_report: { label: "Bibliothèque : signalement", tone: "warn" },
   shop_config: { label: "Réglages boutique", tone: "warn" },
   shop_webhook_rotate: { label: "Webhook Tebex", tone: "warn" },
   shop_payment_note: { label: "Note de paiement", tone: "neutral" },
@@ -88,6 +99,7 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
 const PAYMENT_STATUS: Record<string, string> = { complete: "payé", refund: "remboursé", chargeback: "chargeback" };
 
 const STUDIO_KINDS: Record<string, string> = { ui: "UI", script: "Script", map: "Mapping" };
+const NETWORK_MODE_LABELS: Record<string, string> = Object.fromEntries(NETWORK_MODES.map((m) => [m.key, m.label.toLowerCase()]));
 
 const RESOURCE_VERBS: Record<string, string> = { start: "Démarrage", stop: "Arrêt", restart: "Redémarrage", refresh: "Rechargement de la liste des ressources" };
 
@@ -218,6 +230,22 @@ function describe(action: string, d: Record<string, unknown>): string {
       return `Version #${d.version ?? "?"} remise dans le brouillon`;
     case "store_ai":
       return `« ${String(d.prompt ?? "").slice(0, 200)} »`;
+    case "network_join":
+    case "network_settings":
+      return `Mode ${NETWORK_MODE_LABELS[String(d.mode)] ?? d.mode ?? "?"}${d.mode === "block" ? ` dès ${d.minServers ?? "?"} serveur(s)` : ""}`;
+    case "network_leave":
+      return "Le serveur a quitté le réseau : ses bans ne sont plus partagés";
+    case "ban_sharing":
+      return `${d.player ?? "?"} · ${d.shared ? "partagé avec le réseau" : "gardé sur ce serveur"} · ${categoryLabel(String(d.category ?? "other"))}`;
+    case "library_publish":
+      return `« ${d.title ?? "?"} » v${d.version ?? 1}`;
+    case "library_unpublish":
+    case "library_report":
+      return `« ${d.title ?? "?"} »${reason}`;
+    case "library_install":
+      return `« ${d.title ?? "?"} » v${d.version ?? "?"} de ${d.from ?? "?"} → ${d.resource ?? "?"}`;
+    case "library_update":
+      return `« ${d.title ?? "?"} » passée en v${d.version ?? "?"}`;
     case "staff_sync":
       return `${d.total ?? 0} membres · +${d.inserted ?? 0} / ~${d.updated ?? 0} / −${d.markedLeft ?? 0}`;
     default:

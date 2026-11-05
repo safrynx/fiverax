@@ -5,6 +5,8 @@ import { ingestFivemEvent } from "./fivem";
 import type { Permission } from "./permissions";
 import { sendAnticheatAlert } from "./alerts";
 import { activeBansForAgent, banExpiry, banPlayer, countStrikes, getSecuritySettings, hasActiveBan, recordDetection, SYSTEM_ACTOR } from "./security";
+import { checkConnection, getMembership } from "./network";
+import { categoryLabel, type NetworkMode } from "./network-shared";
 import { getServer } from "./servers";
 import { AC_ACTIONS, detectionLabel, type AnticheatSettings } from "./security-config";
 import { isFilePath, LIMITS, RESOURCE_RE } from "./studio-shared";
@@ -94,7 +96,8 @@ export const agentRequestSchema = z.object({
 
 export type AgentRequest = z.infer<typeof agentRequestSchema>;
 export type AgentCommand = { id: number; kind: CommandKind; payload: Record<string, unknown> };
-export type AgentSecurity = { rev: number; anticheat: AnticheatSettings; bans: Awaited<ReturnType<typeof activeBansForAgent>> };
+/** `network`: the server's Fiverax network mode (null: not a member). In "block" mode the agent asks at each connection. */
+export type AgentSecurity = { rev: number; anticheat: AnticheatSettings; bans: Awaited<ReturnType<typeof activeBansForAgent>>; network: { mode: NetworkMode } | null };
 /** `watch`: someone looks at the live pages, send a snapshot on every call (map, voice). */
 export type AgentResponse = { ok: true; commands: AgentCommand[]; interval: number; watch: boolean; security?: AgentSecurity };
 
@@ -136,9 +139,11 @@ async function closeOpenSessions(serverId: string, now: Date): Promise<void> {
   await db.batch([...players.rows.map(close("player_sessions")), ...staff.rows.map(close("activity_sessions"))]);
 }
 
-async function playerJoined(serverId: string, e: Extract<AgentRequest["events"][number], { type: "join" }>): Promise<void> {
+type JoinedPlayer = { id: number; name: string; identifiers: string[]; tokens: string[]; at: Date };
+
+async function playerJoined(serverId: string, e: Extract<AgentRequest["events"][number], { type: "join" }>): Promise<JoinedPlayer | null> {
   const { license, discordId, kept } = parseIdentifiers(e.identifiers);
-  if (!license) return;
+  if (!license) return null;
   const at = iso(new Date(e.timestamp * 1000));
   const row = await db.get<{ id: number }>(
     `INSERT INTO players (server_id, license, name, discord_id, identifiers_json, tokens_json, first_seen_at, last_seen_at)
@@ -147,15 +152,50 @@ async function playerJoined(serverId: string, e: Extract<AgentRequest["events"][
        identifiers_json = excluded.identifiers_json,
        tokens_json = CASE WHEN excluded.tokens_json = '[]' THEN players.tokens_json ELSE excluded.tokens_json END,
        last_seen_at = excluded.last_seen_at
-     RETURNING id`,
+     RETURNING id, tokens_json`,
     [serverId, license, e.name || "?", discordId, JSON.stringify(kept), JSON.stringify(e.tokens ?? []), at, at]
   );
-  if (!row) return;
+  if (!row) return null;
   await db.run("INSERT OR IGNORE INTO player_sessions (server_id, player_id, external_id, started_at) VALUES (?, ?, ?, ?)", [
     serverId, row.id, sessionKey(serverId, e.session), at
   ]);
   // Staff members also get their playtime counted on the staff pages (ignored for other players).
   if (discordId) await ingestFivemEvent(serverId, { event: "session_start", discordId, playerName: e.name, sessionId: e.session, timestamp: e.timestamp });
+  let tokens: string[] = [];
+  try {
+    tokens = JSON.parse(String((row as { tokens_json?: string }).tokens_json ?? "[]")) as string[];
+  } catch {
+    /* none */
+  }
+  return { id: Number(row.id), name: e.name || "?", identifiers: kept, tokens, at: new Date(e.timestamp * 1000) };
+}
+
+/**
+ * Fiverax network (alert / block mode): a player banned on other servers of the network is flagged in the
+ * detections journal and on the alert webhook, once a day at most.
+ */
+async function networkOnJoin(serverId: string, player: JoinedPlayer): Promise<void> {
+  const verdict = await checkConnection(serverId, player.identifiers, player.tokens, player.at);
+  const rep = verdict.reputation;
+  if (!verdict.flagged || !rep) return;
+  const recent = await db.get(
+    "SELECT 1 FROM ac_detections WHERE server_id = ? AND player_id = ? AND kind = 'network_flag' AND at >= ?",
+    [serverId, player.id, iso(new Date(player.at.getTime() - 24 * 3600_000))]
+  );
+  if (recent) return;
+  const top = rep.records[0];
+  const details = {
+    serveurs: rep.servers,
+    categories: [...new Set(rep.records.map((r) => categoryLabel(r.category)))].join(", "),
+    raison: top.reason.slice(0, 120),
+    par: top.serverName
+  };
+  await recordDetection(serverId, { playerId: player.id, playerName: player.name, kind: "network_flag", details, action: "log" }, player.at);
+  const [{ anticheat }, server] = await Promise.all([getSecuritySettings(serverId), getServer(serverId)]);
+  await sendAnticheatAlert(anticheat, server?.name ?? serverId, {
+    kind: "network_flag", action: "log", playerName: player.name, details, url: playerUrl(serverId, player.id),
+    note: `Banni sur ${rep.servers} autre${rep.servers > 1 ? "s" : ""} serveur${rep.servers > 1 ? "s" : ""} du réseau Fiverax`
+  });
 }
 
 async function playerLeft(serverId: string, e: Extract<AgentRequest["events"][number], { type: "leave" }>): Promise<void> {
@@ -231,11 +271,18 @@ async function refused(serverId: string, e: Extract<AgentRequest["events"][numbe
 export async function handleAgentCall(serverId: string, req: AgentRequest, now = new Date()): Promise<AgentResponse> {
   if (req.boot) await closeOpenSessions(serverId, now);
   const anticheat = req.events.some((e) => e.type === "detection") ? (await getSecuritySettings(serverId)).anticheat : null;
+  const joined: JoinedPlayer[] = [];
   for (const e of req.events) {
-    if (e.type === "join") await playerJoined(serverId, e);
-    else if (e.type === "leave") await playerLeft(serverId, e);
+    if (e.type === "join") {
+      const player = await playerJoined(serverId, e);
+      if (player) joined.push(player);
+    } else if (e.type === "leave") await playerLeft(serverId, e);
     else if (e.type === "refused") await refused(serverId, e);
     else await detected(serverId, e, anticheat as AnticheatSettings);
+  }
+  if (joined.length) {
+    const membership = await getMembership(serverId);
+    if (membership && membership.settings.mode !== "off") for (const player of joined) await networkOnJoin(serverId, player);
   }
 
   const writes: Stmt[] = [
@@ -283,8 +330,8 @@ export async function handleAgentCall(serverId: string, req: AgentRequest, now =
   const watched = Boolean(watchedAt && now.getTime() - new Date(watchedAt).getTime() < WATCH_MS);
   const response: AgentResponse = { ok: true, commands, interval: watched || commands.length ? FAST_INTERVAL : IDLE_INTERVAL, watch: watched };
   if (req.secRev !== rev) {
-    const [settings, bans] = await Promise.all([getSecuritySettings(serverId), activeBansForAgent(serverId, now)]);
-    response.security = { rev: settings.rev, anticheat: settings.anticheat, bans };
+    const [settings, bans, membership] = await Promise.all([getSecuritySettings(serverId), activeBansForAgent(serverId, now), getMembership(serverId)]);
+    response.security = { rev: settings.rev, anticheat: settings.anticheat, bans, network: membership ? { mode: membership.settings.mode } : null };
   }
   return response;
 }

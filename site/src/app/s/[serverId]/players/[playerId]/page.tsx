@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { can, requirePermissionPage } from "@/lib/auth";
 import { getLiveState } from "@/lib/agent";
+import { reputation } from "@/lib/network";
 import { getPlayer } from "@/lib/players";
 import { isBanActive, listBans, listDetections, listScreenshots } from "@/lib/security";
 import { detectionLabel } from "@/lib/security-config";
@@ -11,6 +12,7 @@ import { eventMeta, formatMoney } from "@/lib/tebex-shared";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import Shell from "@/app/shell";
 import CopyButton from "@/app/copy-button";
+import ReputationList from "../../network/reputation";
 import PlayerActions from "./player-actions";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ serverI
   ]);
   if (!player) notFound();
   // Purchases come from the Tebex webhooks, matched on the player's Cfx.re account.
+  // Fiverax network: bans of the other member servers matching this player (null: this server is not a member).
+  const network = security ? await reputation(server.id, player.identifiers, player.tokens) : null;
   const purchases = can(user, "shop_view") ? await shopEventsForPlayer(server.id, player.identifiers, 15) : [];
   const activeBan = bans.find((b) => isBanActive(b)) ?? null;
   const inGame = live.players.find((p) => p.playerId === player.id) ?? null;
@@ -59,6 +63,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ serverI
           <h1 className="h1" style={{ fontSize: "clamp(22px,3vw,34px)" }}>{player.name}</h1>
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
             {player.staff && <Link href={`/s/${server.id}/staff/${player.discordId}`} className="plate"><span>Staff · {player.staff.grade || player.staff.username}</span></Link>}
+            {network && network.servers > 0 && <span className="tag" data-tone="warn">Banni sur {network.servers} autre{network.servers > 1 ? "s" : ""} serveur{network.servers > 1 ? "s" : ""} du réseau</span>}
             {activeBan && <span className="tag" data-tone="danger">Banni{activeBan.expiresAt ? ` jusqu'au ${formatDateTime(activeBan.expiresAt)}` : " définitivement"}</span>}
             <span className="muted" style={{ fontSize: 12 }}>{player.license}</span>
           </div>
@@ -140,6 +145,16 @@ export default async function PlayerPage({ params }: { params: Promise<{ serverI
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {network && (
+          <section className="rise rise-2">
+            <header style={{ paddingBottom: 12, borderBottom: "1px solid var(--line-2)", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <h2 className="h2">Réseau Fiverax</h2>
+              <Link href={`/s/${server.id}/network`} className="linkish" style={{ fontSize: 12 }}>Réglages →</Link>
+            </header>
+            <ReputationList rep={network} empty="Aucun ban sur les autres serveurs du réseau." />
           </section>
         )}
 

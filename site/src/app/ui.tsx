@@ -4,12 +4,16 @@ import { useParams } from "next/navigation";
 import { tebexErrorMessage } from "@/lib/tebex-shared";
 
 type AskInput = { label: string; placeholder?: string; required?: boolean; multiline?: boolean; initial?: string };
-export type AskOptions = { title: string; message?: string; confirmLabel?: string; danger?: boolean; input?: AskInput };
+type AskSelect = { label: string; options: { value: string; label: string }[]; initial?: string };
+type AskCheck = { label: string; hint?: string; initial?: boolean };
+export type AskOptions = { title: string; message?: string; confirmLabel?: string; danger?: boolean; input?: AskInput; select?: AskSelect; check?: AskCheck };
+/** What the dialog gives back: the typed text, and the chosen option / the box when the dialog had them. */
+export type AskResult = { value: string; choice?: string; checked?: boolean };
 type ToastKind = "ok" | "error" | "info";
 
 type UIContext = {
   /** In-page replacement for confirm()/prompt(): resolves with the typed value, or null when cancelled. */
-  ask: (options: AskOptions) => Promise<{ value: string } | null>;
+  ask: (options: AskOptions) => Promise<AskResult | null>;
   toast: (message: string, kind?: ToastKind) => void;
 };
 
@@ -21,18 +25,22 @@ export function useUI(): UIContext {
   return ctx;
 }
 
-type Pending = { options: AskOptions; resolve: (value: { value: string } | null) => void };
+type Pending = { options: AskOptions; resolve: (value: AskResult | null) => void };
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [toasts, setToasts] = useState<{ id: number; message: string; kind: ToastKind }[]>([]);
   const [value, setValue] = useState("");
+  const [choice, setChoice] = useState("");
+  const [checked, setChecked] = useState(false);
   const nextId = useRef(1);
 
   const ask = useCallback<UIContext["ask"]>(
     (options) =>
       new Promise((resolve) => {
         setValue(options.input?.initial ?? "");
+        setChoice(options.select?.initial ?? options.select?.options[0]?.value ?? "");
+        setChecked(options.check?.initial ?? false);
         setPending({ options, resolve });
       }),
     []
@@ -45,7 +53,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const close = useCallback(
-    (result: { value: string } | null) => {
+    (result: AskResult | null) => {
       pending?.resolve(result);
       setPending(null);
     },
@@ -70,7 +78,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
             className="dialog"
             onSubmit={(e) => {
               e.preventDefault();
-              close({ value: value.trim() });
+              close({
+                value: value.trim(),
+                ...(pending.options.select ? { choice } : {}),
+                ...(pending.options.check ? { checked } : {})
+              });
             }}
           >
             <h3>{pending.options.title}</h3>
@@ -84,6 +96,20 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                   <input id="ui-input" className="field" autoFocus required={input.required} placeholder={input.placeholder} value={value} onChange={(e) => setValue(e.target.value)} />
                 )}
               </>
+            )}
+            {pending.options.select && (
+              <>
+                <label htmlFor="ui-select">{pending.options.select.label}</label>
+                <select id="ui-select" className="field" value={choice} onChange={(e) => setChoice(e.target.value)}>
+                  {pending.options.select.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </>
+            )}
+            {pending.options.check && (
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, cursor: "pointer" }}>
+                <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>{pending.options.check.label}{pending.options.check.hint && <small className="muted" style={{ display: "block" }}>{pending.options.check.hint}</small>}</span>
+              </label>
             )}
             <div className="actions">
               <button type="button" className="btn" onClick={() => close(null)}>Annuler</button>
@@ -166,6 +192,16 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "ai_unreadable": return "L'IA a répondu dans un format illisible : relance ou reformule.";
     case "ai_truncated": return "La réponse de l'IA a été coupée (trop longue) : demande une modification plus petite, ou augmente AI_CODE_MAX_TOKENS.";
     case "ai_rate_limited": return "Limite du service IA atteinte : réessaie dans une minute.";
+    case "not_member": return "Ce serveur ne fait pas partie du réseau Fiverax.";
+    case "unknown_item": return "Cette création n'est plus dans la bibliothèque.";
+    case "nothing_to_publish": return "Rien à publier : la création n'a encore aucun fichier.";
+    case "has_errors": return "La création a des erreurs (onglet Vérifications) : corrige-les avant de la publier.";
+    case "unsafe_code": return "Publication refusée : le scanner a trouvé du code dangereux (backdoor, commandes système, permissions admin…).";
+    case "item_hidden": return "Cette publication est masquée après des signalements : elle attend la modération Fiverax.";
+    case "own_item": return "Tu ne peux pas signaler une création de ton propre serveur.";
+    case "already_reported": return "Ton serveur a déjà signalé cette création.";
+    case "up_to_date": return "Déjà à jour.";
+    case "not_installed": return "Cette création ne vient pas de la bibliothèque.";
     default:
       if (data.error?.startsWith("tebex_")) return tebexErrorMessage(data.error, data.message);
       if (data.error?.startsWith("ai_http_")) return `Le service IA a refusé la demande (code ${data.error.slice(8)}).`;

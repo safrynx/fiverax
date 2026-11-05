@@ -37,7 +37,7 @@ export type CreationSummary = {
   deploy: DeployState;
 };
 
-export type Version = { id: number; source: "ai" | "manual" | "restore" | "create"; prompt: string | null; summary: string | null; author: string | null; createdAt: string };
+export type Version = { id: number; source: "ai" | "manual" | "restore" | "create" | "library"; prompt: string | null; summary: string | null; author: string | null; createdAt: string };
 
 export type Creation = CreationSummary & { files: StudioFile[]; data: CreationData; versions: Version[] };
 
@@ -117,7 +117,7 @@ export async function getCreation(serverId: string, id: number): Promise<Creatio
 export class StudioError extends Error {}
 
 /** Files of a creation from its data: a mapping's or a visual creation's files are generated, the others are what was written. */
-function normalise(kind: CreationKind, name: string, framework: Framework, files: StudioFile[], data: CreationData): { files: StudioFile[]; data: CreationData } {
+export function normalise(kind: CreationKind, name: string, framework: Framework, files: StudioFile[], data: CreationData): { files: StudioFile[]; data: CreationData } {
   if (kind === "map") {
     const map = cleanMap(data.map);
     return { files: mapFiles(name, map), data: { map } };

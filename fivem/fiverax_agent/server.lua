@@ -17,7 +17,7 @@
 --   ensure screenshot-basic                           # optional: screenshots analysed by the AI
 --   ensure fiverax_agent
 
-local VERSION = '3.3.0'
+local VERSION = '3.4.0'
 local RESOURCE = GetCurrentResourceName()
 
 -- The 1.x convars (gtasun_staff_api_url pointed at /api/fivem) still work.
@@ -45,6 +45,7 @@ FVX = {
     joinedAt = {},       -- [server id] = os.time() of the join
     client = {},         -- [server id] = { zone, vehicle } reported by the client module
     settings = nil,      -- anticheat settings from the panel (nil until loaded)
+    network = nil,       -- Fiverax network mode ({ mode = 'off' | 'alert' | 'block' }, nil: not a member)
     secRev = 0,
     url = URL,
     headers = HEADERS
@@ -200,11 +201,37 @@ local function refusal(src, name)
     return nil
 end
 
+-- Fiverax network, "block" mode: ask the panel whether this player is banned on enough other servers.
+-- The player is let in when the panel does not answer within a few seconds (a down panel never locks the server).
+local function networkRefusal(src)
+    if not FVX.network or FVX.network.mode ~= 'block' or FVX.whitelisted(src) then return nil end
+    local done, answer = false, nil
+    PerformHttpRequest(URL .. '/api/fivem/agent/network', function(status, body)
+        if done then return end
+        done = true
+        if status == 200 and body then
+            local ok, data = pcall(json.decode, body)
+            if ok and type(data) == 'table' then answer = data end
+        end
+    end, 'POST', json.encode({ identifiers = FVX.identifiers(src), tokens = FVX.tokens(src) }), HEADERS)
+    local deadline = GetGameTimer() + 4000
+    while not done and GetGameTimer() < deadline do Wait(50) end
+    done = true
+    if answer and answer.blocked then
+        return tostring(answer.message or 'Connexion refusée par le réseau Fiverax.'), 'réseau Fiverax'
+    end
+    return nil
+end
+
 AddEventHandler('playerConnecting', function(name, _, deferrals)
     local src = source
     deferrals.defer()
     Wait(0)
     local message, why = refusal(src, name)
+    if not message and FVX.network and FVX.network.mode == 'block' then
+        deferrals.update('Vérification du réseau Fiverax…')
+        message, why = networkRefusal(src)
+    end
     if not message then return deferrals.done() end
     deferrals.done(message)
     local conf = FVX.settings and FVX.settings.detections and FVX.settings.detections.connection_refused
@@ -216,6 +243,7 @@ end)
 local function applySecurity(security)
     FVX.secRev = security.rev or 0
     FVX.settings = security.anticheat
+    FVX.network = security.network ~= json.null and security.network or nil
     indexBans(security.bans)
     SaveResourceFile(RESOURCE, BANS_FILE, json.encode(security.bans or {}), -1)
     if FVX.onSettings then FVX.onSettings(FVX.settings) end

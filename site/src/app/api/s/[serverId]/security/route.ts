@@ -3,10 +3,11 @@ import { z } from "zod";
 import { can, requireStaffApi } from "@/lib/auth";
 import { enqueueCommand, getLiveState } from "@/lib/agent";
 import { changeMemberRoles } from "@/lib/discord";
+import { BAN_CATEGORY_KEYS, type BanCategory } from "@/lib/network-shared";
 import type { Permission } from "@/lib/permissions";
 import type { ServerRouteContext } from "@/lib/route";
 import {
-  banPlayer, getIncident, getScreenshotImage, getSecuritySettings, markIncidentRestored, reviewDetection, revokeBan, saveSecuritySettings, setScreenshotVerdict
+  banPlayer, getIncident, setBanSharing, getScreenshotImage, getSecuritySettings, markIncidentRestored, reviewDetection, revokeBan, saveSecuritySettings, setScreenshotVerdict
 } from "@/lib/security";
 import { anticheatSchema, antiraidSchema } from "@/lib/security-config";
 import { enqueueBotAction, type BotActionKind } from "@/lib/security-live";
@@ -22,8 +23,13 @@ const SCHEMAS = {
   antiraid_config: { permission: "security_config", schema: antiraidSchema },
   ban: {
     permission: "ban",
-    schema: z.object({ playerId: id, reason: z.string().trim().min(1).max(300), hours: z.number().int().min(1).max(24 * 3650).nullable() })
+    schema: z.object({
+      playerId: id, reason: z.string().trim().min(1).max(300), hours: z.number().int().min(1).max(24 * 3650).nullable(),
+      category: z.enum(BAN_CATEGORY_KEYS).default("other"),
+      shared: z.boolean().default(true)
+    })
   },
+  ban_sharing: { permission: "ban", schema: z.object({ banId: id, shared: z.boolean().optional(), category: z.enum(BAN_CATEGORY_KEYS).optional() }) },
   unban: { permission: "ban", schema: z.object({ banId: id }) },
   detection_review: { permission: "view_security", schema: z.object({ id, status: z.enum(["open", "confirmed", "dismissed"]) }) },
   incident_restore: { permission: "security_config", schema: z.object({ id }) },
@@ -57,9 +63,9 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
       return NextResponse.json({ ok: true });
 
     case "ban": {
-      const { playerId, reason, hours } = data as { playerId: number; reason: string; hours: number | null };
+      const { playerId, reason, hours, category, shared } = data as { playerId: number; reason: string; hours: number | null; category: BanCategory; shared: boolean };
       const expiresAt = hours ? new Date(Date.now() + hours * 3600_000).toISOString() : null;
-      if (!(await banPlayer(server.id, actor, { playerId, reason, source: "manual", expiresAt }))) return NextResponse.json({ error: "unknown_player" }, { status: 404 });
+      if (!(await banPlayer(server.id, actor, { playerId, reason, source: "manual", expiresAt, category, shared }))) return NextResponse.json({ error: "unknown_player" }, { status: 404 });
       // In game right now: drop them at once (the agent also refuses them at their next connection).
       const live = await getLiveState(server.id);
       const inGame = live.online ? live.players.find((p) => p.playerId === playerId) : undefined;
@@ -68,6 +74,12 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
         await enqueueCommand(server.id, actor, "kick", { target: inGame.id, reason: `${anticheat.banMessage}\nRaison : ${reason}` }, { playerName: inGame.name, targetDiscordId: inGame.discordId });
       }
       return NextResponse.json({ ok: true, kicked: Boolean(inGame) });
+    }
+
+    case "ban_sharing": {
+      const { banId, shared, category } = data as { banId: number; shared?: boolean; category?: BanCategory };
+      if (!(await setBanSharing(server.id, actor, banId, { shared, category }))) return NextResponse.json({ error: "unknown_ban" }, { status: 404 });
+      return NextResponse.json({ ok: true });
     }
 
     case "unban":
