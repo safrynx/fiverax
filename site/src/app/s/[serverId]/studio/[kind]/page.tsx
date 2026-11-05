@@ -30,7 +30,7 @@ export default async function StudioPage({ params }: { params: Promise<{ serverI
 
       <NewCreation kind={kind} players={players} />
       <p className="muted rise rise-1" style={{ fontSize: 13, margin: "14px 0 0" }}>
-        Pas envie de partir de zéro ? <Link href={`/s/${server.id}/library?kind=${kind}`} className="linkish">Parcours la bibliothèque du réseau</Link> : les {meta.one}s partagées par les autres serveurs Fiverax s&apos;installent en un clic.
+        Pas envie de partir de zéro ? <Link href={`/s/${server.id}/${kind === "script" ? "scripts" : kind === "map" ? "mappings" : "ui"}`} className="linkish">Parcours la bibliothèque du réseau</Link> : les {meta.one}s partagées par les autres serveurs Fiverax s&apos;installent en un clic.
       </p>
 
       <section className="sect rise rise-2">

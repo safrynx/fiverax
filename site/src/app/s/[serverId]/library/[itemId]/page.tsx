@@ -6,7 +6,8 @@ import { SEVERITY_LABEL } from "@/lib/audit-rules";
 import { getLibraryItem, itemReports } from "@/lib/library";
 import { FRAMEWORKS, KIND_META } from "@/lib/studio-shared";
 import { formatDateTime } from "@/lib/format";
-import Shell from "@/app/shell";
+import Shell, { type NavKey } from "@/app/shell";
+import { LIB_PAGES } from "../library-view";
 import { GuildIcon } from "@/app/new-server-form";
 import ItemActions from "../item-actions";
 import ItemPreview from "../item-preview";
@@ -27,8 +28,8 @@ export default async function LibraryItemPage({ params }: { params: Promise<{ se
   const serious = item.findings.filter((f) => f.severity === "high" || f.severity === "medium");
 
   return (
-    <Shell user={user} server={server} active="library">
-      <Link href={`/s/${server.id}/library`} className="linkish rise" style={{ display: "inline-block", marginBottom: 22 }}>← Bibliothèque</Link>
+    <Shell user={user} server={server} active={`lib_${item.kind}` as NavKey}>
+      <Link href={`/s/${server.id}/${LIB_PAGES[item.kind].slug}`} className="linkish rise" style={{ display: "inline-block", marginBottom: 22 }}>← Bibliothèque : {LIB_PAGES[item.kind].title}</Link>
 
       {STATUS[item.status] && <div className="banner"><b>{STATUS[item.status][0]}.</b> {item.viewer.mine ? "Seuls ton serveur et la modération Fiverax la voient." : "Visible par la modération uniquement."}</div>}
 

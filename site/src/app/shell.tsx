@@ -8,7 +8,7 @@ import { Mark } from "./brand";
 import LogoutButton from "./logout-button";
 import { GuildIcon } from "./new-server-form";
 
-export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "library" | "staff" | "report" | "logs" | "admin" | "settings";
+export type NavKey = "dashboard" | "live" | "map" | "players" | "server" | "anticheat" | "audit" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "settings";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; active?: boolean };
 export type NavSection = { label: string; items: NavItem[] };
@@ -71,8 +71,14 @@ export default function Shell({ user, server, active, children }: Props) {
       ? [{
           label: "Réseau Fiverax",
           items: [
-            ...(can(user, "view_security") ? [item("network", `${base}/network`, "Réseau", Network)] : []),
-            ...(can(user, "studio") ? [item("library", `${base}/library`, "Bibliothèque", Library)] : [])
+            ...(can(user, "view_security") ? [item("network", `${base}/network`, "Bans partagés", Network)] : []),
+            ...(can(user, "studio")
+              ? [
+                  item("lib_ui", `${base}/ui`, "UI", Palette),
+                  item("lib_script", `${base}/scripts`, "Scripts", FileCode2),
+                  item("lib_map", `${base}/mappings`, "Mappings", Boxes)
+                ]
+              : [])
           ]
         }]
       : []),

@@ -84,7 +84,7 @@ export default function ItemActions(p: Props) {
     const ok = await ask({ title: `Retirer « ${p.title} » de la bibliothèque ?`, message: "Les serveurs qui l'ont installée gardent leur copie, mais ne recevront plus de mise à jour.", confirmLabel: "Retirer", danger: true });
     if (ok && (await post("unpublish", { itemId: p.itemId }))) {
       toast("Création retirée de la bibliothèque.", "ok");
-      router.push(paths.page("/library"));
+      router.push(paths.page(`/${p.kind === "script" ? "scripts" : p.kind === "map" ? "mappings" : "ui"}`));
     }
   }
 

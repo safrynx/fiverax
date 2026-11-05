@@ -37,7 +37,7 @@ export default async function NetworkPage({ params, searchParams }: { params: Pr
 
   return (
     <Shell user={user} server={server} active="network">
-      <PageHead kicker="Réseau Fiverax" title="Réseau">
+      <PageHead kicker="Réseau Fiverax" title="Bans partagés">
         Les serveurs Fiverax mettent leurs bans en commun : un cheater banni sur un serveur est reconnu sur tous les autres, même sous un autre pseudo,
         par sa license Rockstar, ses comptes liés ou son PC. Les identifiants ne quittent jamais ton serveur : seule une empreinte (hash) est comparée.
       </PageHead>
@@ -45,7 +45,7 @@ export default async function NetworkPage({ params, searchParams }: { params: Pr
       <div className="strip">
         <div className="rise rise-1"><div className="eyebrow">Serveurs membres</div><div className="num">{overview.members}</div></div>
         <div className="rise rise-2"><div className="eyebrow">Bans partagés actifs</div><div className="num">{overview.sharedBans}</div></div>
-        <div className="rise rise-3"><div className="eyebrow">Créations partagées</div><div className="num">{overview.libraryItems}</div><small><Link href={`${base}/library`} className="linkish">Bibliothèque →</Link></small></div>
+        <div className="rise rise-3"><div className="eyebrow">Créations partagées</div><div className="num">{overview.libraryItems}</div><small><Link href={`${base}/ui`} className="linkish">Bibliothèque →</Link></small></div>
         <div className="rise rise-4"><div className="eyebrow">Installations</div><div className="num">{overview.installs}</div></div>
       </div>
 
