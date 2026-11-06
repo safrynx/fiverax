@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Star, ThumbsUp, Users } from "lucide-react";
+import { Award, ShieldCheck, Star, ThumbsUp, Users } from "lucide-react";
+import { levelOf } from "@/lib/protection-shared";
 import { tagLabel, type DirectoryCard, type LiveSummary } from "@/lib/directory-shared";
 import { FRAMEWORKS } from "@/lib/studio-shared";
 
@@ -50,11 +51,23 @@ export function ServerCard({ card, rank }: { card: DirectoryCard; rank?: number 
           {card.votes > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><ThumbsUp size={12} /><b>{card.votes}</b> vote{card.votes > 1 ? "s" : ""}</span>}
         </div>
         <div className="dir-meta">
+          {card.protection && <ProtectionChip level={card.protection} />}
+          {card.ambassador && <span className="dir-tag" title="A fait découvrir Fiverax à d'autres serveurs"><Award size={11} />{card.ambassador}</span>}
           {card.framework !== "standalone" && <span className="dir-tag">{frameworkLabel(card.framework)}</span>}
           {card.minAge > 0 && <span className="dir-tag">{card.minAge}+</span>}
           {card.tags.slice(0, 3).map((t) => <span key={t} className="dir-tag">{tagLabel(t)}</span>)}
         </div>
       </div>
     </Link>
+  );
+}
+
+/** "Protégé par Fiverax" level of a listing (only shown when the server turned its badge on). */
+export function ProtectionChip({ level }: { level: "protected" | "reinforced" | "fortress" }) {
+  const l = levelOf(level);
+  return (
+    <span className="dir-tag gx-chip" style={{ "--lvl": l.color } as React.CSSProperties} title={`Sécurité vérifiée par Fiverax : niveau ${l.label}`}>
+      <ShieldCheck size={11} />{l.label}
+    </span>
   );
 }

@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Gamepad2, Globe, MessageCircle, ShoppingBag, Users } from "lucide-react";
+import { ArrowLeft, Gamepad2, Globe, MessageCircle, ShieldCheck, ShoppingBag, Users } from "lucide-react";
 import { can, getIdentity, getSessionUser } from "@/lib/auth";
 import { getPublicListing, reviewEligibility } from "@/lib/directory";
 import { discordUrl, joinUrl, LANGUAGES, tagLabel } from "@/lib/directory-shared";
 import { frameworkLabel, LiveLine, Logo, Stars } from "../parts";
 import { CtaLink, TrackLink, TrackView } from "../track";
 import { voteState } from "@/lib/votes";
+import { publicProtectionOf } from "@/lib/protection";
+import { levelOf } from "@/lib/protection-shared";
+import { ensureCode } from "@/lib/referrals";
 import Reviews from "./reviews";
 import VoteBox from "./vote";
 
@@ -54,10 +57,13 @@ export default async function ListingPage(props: Params) {
   const { listing: l, live, rating } = data;
   const join = l.connect ? joinUrl(l.connect) : null;
   const discord = l.discord ? discordUrl(l.discord) : null;
-  const [eligibility, votes] = await Promise.all([
+  const [eligibility, votes, protection, refCode] = await Promise.all([
     reviewEligibility(l.serverId, viewer),
-    voteState(l.serverId, viewer ? { discordId: viewer.discordId, username: viewer.username } : null, l.published)
+    voteState(l.serverId, viewer ? { discordId: viewer.discordId, username: viewer.username } : null, l.published),
+    publicProtectionOf(l.serverId).catch(() => null),
+    l.published ? ensureCode(l.serverId).catch(() => null) : Promise.resolve(null)
   ]);
+  const shield = protection && protection.level !== "none" ? levelOf(protection.level) : null;
   const lang = LANGUAGES.find((x) => x.key === l.language)?.label ?? l.language;
 
   // Rich result for search engines (aggregate rating only when there are reviews).
@@ -87,6 +93,7 @@ export default async function ListingPage(props: Params) {
           {l.tagline && <p>{l.tagline}</p>}
           <div className="dir-meta" style={{ marginTop: 10 }}>
             {data.featured && <span className="dir-tag" data-on="true">À la une</span>}
+            {shield && <Link href={`/protection/${protection!.publicId}`} className="dir-tag gx-chip" style={{ "--lvl": shield.color } as React.CSSProperties}><ShieldCheck size={12} />{shield.label}</Link>}
             <LiveLine live={live} />
             {rating.count > 0 && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Stars value={rating.average ?? 0} /><b>{rating.average}</b> · {rating.count} avis</span>}
           </div>
@@ -117,6 +124,15 @@ export default async function ListingPage(props: Params) {
 
         <aside>
           <VoteBox slug={l.slug} serverName={l.name} initial={votes} />
+          {shield && protection && (
+            <Link href={`/protection/${protection.publicId}`} className="dir-panel gx-shield-panel" style={{ "--lvl": shield.color } as React.CSSProperties}>
+              <ShieldCheck size={26} />
+              <div>
+                <h2 style={{ margin: 0 }}>Protégé par Fiverax · {shield.label}</h2>
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>{protection.score !== null ? `Score de sécurité ${protection.score}/100. ` : ""}Code des ressources analysé et protections vérifiées par Fiverax.</p>
+              </div>
+            </Link>
+          )}
           {live && (
             <div className="dir-panel">
               <h2>En direct</h2>
@@ -142,7 +158,7 @@ export default async function ListingPage(props: Params) {
           <div className="dir-panel" style={{ background: "radial-gradient(300px 160px at 100% 0%, rgba(var(--accent-rgb), 0.18), transparent 70%), var(--surface)" }}>
             <h2>Ton serveur ici ?</h2>
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>{l.name} est géré avec Fiverax : staff, boutique, anticheat, assistant IA. Référence aussi le tien, c&apos;est gratuit.</p>
-            <CtaLink href="/login" className="btn sm" >Découvrir Fiverax</CtaLink>
+            {refCode ? <a href={`/r/${refCode}?to=scan`} className="btn sm">Scanner mon serveur gratuitement</a> : <CtaLink href="/login" className="btn sm">Découvrir Fiverax</CtaLink>}
           </div>
         </aside>
       </div>

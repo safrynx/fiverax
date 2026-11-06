@@ -2467,3 +2467,223 @@ test("player portal: play time and sanctions across servers, ban appeal once at 
   assert.equal((await portal.listAppeals(S2, "all")).length, 2);
   await m.servers.deleteServer(S2);
 });
+
+// ---- growth: free scan, "Protégé par Fiverax", referrals ----
+
+test("free scan: targets, public addresses only (SSRF), analysis of what a server shows publicly", async () => {
+  const x = await import("../src/lib/external-scan-shared");
+  assert.deepEqual(x.parseTarget("https://cfx.re/join/AbC123"), { kind: "cfx", code: "abc123" });
+  assert.deepEqual(x.parseTarget("abc123"), { kind: "cfx", code: "abc123" });
+  assert.deepEqual(x.parseTarget("connect 51.75.12.34:30121"), { kind: "host", host: "51.75.12.34", port: 30121 });
+  assert.deepEqual(x.parseTarget("play.monrp.fr"), { kind: "host", host: "play.monrp.fr", port: 30120 });
+  assert.deepEqual(x.parseTarget("[2a01:4f8::1]:30120"), { kind: "host", host: "2a01:4f8::1", port: 30120 });
+  for (const bad of ["", "localhost:30120", "1.2.3.4:22", "1.2.3.4:99999", "123456", "a..b:30120", "x".repeat(300)]) assert.equal(x.parseTarget(bad), null, bad);
+
+  for (const ip of ["51.75.12.34", "8.8.8.8", "2a01:4f8::1"]) assert.equal(x.isPublicIp(ip), true, ip);
+  for (const ip of ["127.0.0.1", "10.0.0.5", "172.16.3.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "2001:db8::1", "nope"]) {
+    assert.equal(x.isPublicIp(ip), false, ip);
+  }
+  assert.equal(x.cleanServerName("^1Neon ^7City ~r~RP\u0001"), "Neon City RP");
+
+  const risky = x.analyzeExternal({
+    server: "FXServer-master SERVER v1.0.0.6683 win32",
+    vars: { sv_scriptHookAllowed: "true", sv_projectName: "^2Neon City", onesync_enabled: "false" },
+    resources: ["es_extended", "mysql-async", "esx_shops"],
+    players: [{ endpoint: "51.75.12.34:5000", identifiers: ["license:x"] }, { endpoint: "127.0.0.1", identifiers: [] }]
+  }, { build: 6683, recommended: 12000, critical: 7290 });
+  const rules = risky.findings.map((f) => f.rule);
+  for (const r of ["scripthook", "pure_level", "no_onesync", "game_build", "critical_artifacts", "public_endpoints", "no_anticheat", "old_mysql", "code_not_scanned"]) assert.ok(rules.includes(r), r);
+  assert.equal(risky.facts.name, "Neon City");
+  assert.equal(risky.facts.framework, "ESX");
+  assert.ok(risky.score <= 35); // a critical problem caps the score
+  assert.match(risky.findings.find((f) => f.rule === "public_endpoints")!.detail, /1 joueur sur 2/);
+  assert.ok(!JSON.stringify(risky).includes("51.75.12.34")); // player data is counted, never kept
+
+  const clean = x.analyzeExternal({
+    server: "FXServer-master SERVER v1.0.0.12500 linux",
+    vars: { sv_pureLevel: "1", onesync_enabled: "true", sv_enforceGameBuild: "3258" },
+    resources: ["qbx_core", "oxmysql", "fiverax_agent"],
+    players: [{ endpoint: "127.0.0.1" }]
+  }, { build: 12500, recommended: 12000, critical: 7290 });
+  assert.deepEqual(clean.findings.map((f) => f.rule), ["code_not_scanned"]);
+  assert.equal(clean.score, 100);
+  assert.deepEqual([clean.facts.fiverax, clean.facts.framework, clean.facts.anticheats], [true, "Qbox", ["Fiverax"]]);
+  assert.deepEqual(x.lockFindings(risky.findings).map((f) => Object.keys(f).sort().join(","))[0], "category,rule,severity,title");
+});
+
+test("free scan: stored, the same server answered from cache for 10 min, rate limited per address", async () => {
+  const scan = await import("../src/lib/external-scan");
+  const data = { vars: { onesync_enabled: "true" }, resources: ["qb-core"], players: [] };
+  let calls = 0;
+  const fetcher = async () => { calls++; return data; };
+  const who = { ipHash: scan.scanIpHash("203.0.114.9"), discordId: null };
+  const t0 = new Date("2026-06-01T10:00:00Z");
+  const first = await scan.runPublicScan("cfx.re/join/zzz111", who, { now: t0, fetcher });
+  const again = await scan.runPublicScan("zzz111", who, { now: new Date(t0.getTime() + 5 * 60_000), fetcher });
+  assert.equal(again.token, first.token);
+  assert.equal(calls, 1);
+  assert.equal((await scan.getPublicScan(first.token))?.report.facts.framework, "QBCore");
+  assert.equal(await scan.getPublicScan("../../etc"), null);
+  await assert.rejects(scan.runPublicScan("localhost", who, { now: t0, fetcher }), /invalid_target/);
+  for (let i = 0; i < 7; i++) await scan.runPublicScan(`10${i}.20.30.40:30120`, who, { now: t0, fetcher });
+  await assert.rejects(scan.runPublicScan("109.20.30.40:30120", who, { now: t0, fetcher }), /rate_limited/);
+  // Another address is not limited.
+  await scan.runPublicScan("109.20.30.40:30120", { ipHash: scan.scanIpHash("198.51.99.1"), discordId: null }, { now: t0, fetcher });
+});
+
+test("protection: levels only from verified checks, rules plan, server.cfg, kit resources pass the scanner and the Studio checks", async () => {
+  const p = await import("../src/lib/protection-shared");
+  const kit = await import("../src/lib/protection-kit");
+  const now = new Date("2026-06-10T12:00:00Z");
+  const day = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
+  const base = {
+    agentSeenAt: day(1), lastScan: { at: day(3), score: 85, critical: 0, high: 0 }, continuous: false, anticheatEnabled: true,
+    alertsWebhook: true, guildLinked: true, antiraidEnabled: true, network: false
+  };
+  assert.equal(p.protectionLevel(p.protectionChecks(base, now)), "reinforced");
+  assert.equal(p.protectionLevel(p.protectionChecks({ ...base, lastScan: { ...base.lastScan, score: 95 }, continuous: true, network: true }, now)), "fortress");
+  assert.equal(p.protectionLevel(p.protectionChecks({ ...base, lastScan: { ...base.lastScan, critical: 1 } }, now)), "none");
+  assert.equal(p.protectionLevel(p.protectionChecks({ ...base, lastScan: { ...base.lastScan, at: day(40) } }, now)), "none"); // stale scan
+  assert.equal(p.protectionLevel(p.protectionChecks({ ...base, agentSeenAt: day(9) }, now)), "none");
+  // A level needs every check below it: fortress items do not count without the reinforced ones.
+  assert.equal(p.protectionLevel(p.protectionChecks({ ...base, antiraidEnabled: false, continuous: true, network: true, lastScan: { ...base.lastScan, score: 99 } }, now)), "protected");
+  const next = p.nextStep(p.protectionChecks(base, now));
+  assert.deepEqual([next?.level, next?.missing.map((c) => c.key)], ["fortress", ["score92", "continuous", "network"]]);
+
+  const findings = [
+    { rule: "exposed_webhook", category: "security", severity: "high", title: "w", detail: "", fix: "f1", resource: "shop" },
+    { rule: "exposed_webhook", category: "security", severity: "high", title: "w", detail: "", fix: "f1", resource: "garage" },
+    { rule: "remote_code", category: "security", severity: "critical", title: "b", detail: "", fix: "f2", resource: "evil" },
+    { rule: "scripthook", category: "config", severity: "critical", title: "s", detail: "", fix: "f3" }
+  ] as Parameters<typeof p.rulesPlan>[0];
+  const plan = p.rulesPlan(findings, p.protectionChecks({ ...base, network: false }, now), now);
+  assert.equal(plan.steps[0].impact, "high");
+  assert.ok(plan.steps.some((s) => s.kit === "fvx_webhooks" && /shop, garage/.test(s.why)));
+  assert.ok(plan.steps.some((s) => s.title === "Membre des bans partagés"));
+  assert.match(plan.summary, /2 problèmes critiques/);
+  assert.deepEqual(p.recommendKit(findings).find((k) => k.key === "fvx_webhooks"), { key: "fvx_webhooks", count: 2 });
+  const cfg = p.hardeningCfg(["scripthook", "rcon"]);
+  assert.match(cfg, /sv_scriptHookAllowed 0/);
+  assert.ok(!/sv_pureLevel/.test(cfg));
+  assert.match(p.hardeningCfg(null), /sv_pureLevel 1[\s\S]*ensure fvx_join_guard/);
+
+  const parsed = p.parsePlan(JSON.stringify({ summary: "ok", steps: [{ title: "A", how: "B", impact: "high", page: "hack", kit: "rm -rf" }, { title: "", how: "x" }] }), now);
+  assert.deepEqual(parsed?.steps.map((s) => [s.title, s.page, s.kit]), [["A", null, null]]);
+  assert.equal(p.parsePlan("pas du json", now), null);
+
+  for (const [key, res] of Object.entries(kit.KIT_FILES)) {
+    const checks = m.shared.checkFiles(res.files);
+    assert.deepEqual(checks.filter((c) => c.level === "error"), [], `${key}: studio checks`);
+    for (const f of res.files.filter((x) => x.path.endsWith(".lua"))) {
+      const found = m.auditRules.analyzeFile(f.path, f.content, f.path === "server.lua" ? "server" : "other").findings;
+      assert.deepEqual(found.filter((x) => x.severity !== "info").map((x) => x.rule), [], `${key}/${f.path}: scanner`);
+    }
+    assert.doesNotThrow(() => m.shared.cleanFiles(res.files));
+  }
+  const embeds = p.embedCodes("https://fiverax.gg/", "neon-city-ab12");
+  assert.equal(embeds.find((e) => e.key === "md")!.code, "[![Protégé par Fiverax](https://fiverax.gg/badge/neon-city-ab12.svg)](https://fiverax.gg/protection/neon-city-ab12)");
+});
+
+test("protection: badge off until turned on, public page without problems, kit installed (then updated) in the Studio", async () => {
+  const protection = await import("../src/lib/protection");
+  const { badgeSvg } = await import("../src/lib/badge-svg");
+  const created = await m.servers.createServer({ name: "Badge City", guildId: "560000000000000001", createdBy: A });
+  assert.ok(created.ok);
+  const server = created.server;
+  const badge = await protection.ensureBadge(server);
+  assert.equal(badge.enabled, false);
+  assert.match(badge.publicId, /^badge-city-[0-9a-f]{4}$/);
+  assert.equal((await protection.ensureBadge(server)).publicId, badge.publicId);
+  assert.equal(await protection.publicProtection(badge.publicId), null);
+
+  await protection.setBadgeEnabled(server, { discordId: A }, true);
+  const pub = await protection.publicProtection(badge.publicId, { countView: true });
+  assert.deepEqual([pub?.name, pub?.level, pub?.score], ["Badge City", "none", null]);
+  assert.ok(pub!.protections.includes("Anticheat actif")); // the anticheat is on by default
+  assert.equal((await protection.ensureBadge(server)).views, 1);
+  assert.equal(await protection.publicProtection("../x"), null);
+  assert.match(badgeSvg(null), /vérification/);
+  const svg = badgeSvg({ level: "reinforced", score: 88, checkedAt: "2026-06-01T10:00:00Z" });
+  assert.match(svg, /Renforcé/);
+  assert.match(svg, /88\/100/);
+  assert.match(svg, /01\/06\/2026/);
+  assert.match(badgeSvg({ level: "protected", score: 70, checkedAt: null }, "flat"), /height="20"/);
+
+  const status = await protection.protectionStatus(server.id);
+  assert.equal(status.level, "none");
+  assert.equal(status.checks.find((c) => c.key === "agent")?.done, false);
+  const plan = await protection.currentPlan(server.id, status);
+  assert.equal(plan.source, "rules");
+  assert.ok(plan.steps.some((s) => s.page === "settings"));
+
+  const first = await protection.installKit(server.id, { discordId: A, username: "Owner" }, "fvx_join_guard");
+  const second = await protection.installKit(server.id, { discordId: A, username: "Owner" }, "fvx_join_guard");
+  assert.deepEqual([first.created, second.created, second.creationId], [true, false, first.creationId]);
+  const creation = await m.studio.getCreation(server.id, first.creationId);
+  assert.deepEqual([creation?.resource, creation?.files.map((f) => f.path)], ["fvx_join_guard", ["fxmanifest.lua", "server.lua", "README.md"]]);
+  await m.servers.deleteServer(server.id);
+  assert.equal(await db.get("SELECT 1 FROM protection_badges WHERE server_id = ?", [server.id]), undefined);
+});
+
+test("referrals: one referrer per server, no self-referral, validated once the server runs, days spent as featured slots", async () => {
+  const ref = await import("../src/lib/referrals");
+  const directory = await import("../src/lib/directory");
+  const X = "100000000000000071";
+  const Y = "100000000000000072";
+  const a = await m.servers.createServer({ name: "Parrain RP", guildId: "570000000000000001", createdBy: X });
+  const b = await m.servers.createServer({ name: "Filleul RP", guildId: "570000000000000002", createdBy: Y });
+  const c = await m.servers.createServer({ name: "Autre de X", guildId: "570000000000000003", createdBy: X });
+  assert.ok(a.ok && b.ok && c.ok);
+  const [A1, B1, C1] = [a.server.id, b.server.id, c.server.id];
+  const code = await ref.ensureCode(A1);
+  assert.match(code, /^[a-z0-9]{8}$/);
+  assert.equal(await ref.ensureCode(A1), code);
+  assert.equal(await ref.countClick(code), true);
+  assert.equal(await ref.countClick("nope!"), false);
+
+  assert.equal(await ref.recordReferral(code, A1, Y), false); // itself
+  assert.equal(await ref.recordReferral(code, C1, X), false); // its own creator
+  assert.equal(await ref.recordReferral("zzzzzzzz", B1, Y), false); // unknown code
+  assert.equal(await ref.recordReferral(code, B1, Y), true);
+  assert.equal(await ref.recordReferral(code, B1, Y), false); // one referrer per server
+
+  const t = new Date("2026-06-01T12:00:00Z");
+  assert.equal(await ref.qualifyPending({}, t), 0);
+  let view = await ref.referralOverview(A1, t);
+  assert.deepEqual([view.clicks, view.balance, view.referrals[0].status, view.referrals[0].progress?.done], [1, 0, "pending", false]);
+
+  // The referred server runs: agent connected and 5 different players.
+  await db.run("INSERT INTO fivem_state (server_id, seen_at) VALUES (?, ?)", [B1, t.toISOString()]);
+  for (let i = 1; i <= 5; i++) {
+    await db.run("INSERT INTO player_sessions (server_id, player_id, external_id, started_at) VALUES (?, ?, ?, ?)", [B1, 9000 + i, `ref-${B1}-${i}`, t.toISOString()]);
+  }
+  assert.equal(await ref.qualifyPending({}, t), 1);
+  assert.equal(await ref.qualifyPending({}, t), 0); // idempotent
+  assert.equal(await ref.balanceOf(A1), 7);
+  assert.equal(await ref.balanceOf(B1), 3);
+  view = await ref.referralOverview(A1, t);
+  assert.deepEqual([view.qualified, view.tier, view.referrals[0].status], [1, null, "qualified"]);
+  assert.deepEqual((await ref.referralOverview(B1, t)).referredBy, { name: "Parrain RP", status: "qualified" });
+
+  // Spending: the listing must be published; the balance is never overspent.
+  await assert.rejects(ref.redeemDays(A1, { discordId: X }, 5, t), /listing_not_published/);
+  await directory.saveListing(A1, { discordId: X }, {
+    slug: "parrain-rp", name: "Parrain RP", tagline: "Le meilleur RP du coin", description: "x".repeat(100), logoUrl: "", bannerUrl: "", gallery: [],
+    connect: "cfx.re/join/abc123", discord: "", website: "", tags: [], framework: "standalone", language: "fr", minAge: 0, showPlayers: true
+  }, t);
+  await directory.setPublished(A1, { discordId: X }, true, t);
+  assert.deepEqual(await ref.redeemDays(A1, { discordId: X }, 5, t), { balance: 2 });
+  await assert.rejects(ref.redeemDays(A1, { discordId: X }, 3, t), /not_enough_days/);
+  const slots = await directory.featuredSlots(A1, t);
+  assert.deepEqual(slots.map((s) => [s.source, (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 86_400_000]), [["referral", 5]]);
+
+  // Pending referrals expire after 60 days.
+  const d = await m.servers.createServer({ name: "Dormant RP", guildId: "570000000000000004", createdBy: "100000000000000073" });
+  assert.ok(d.ok);
+  assert.equal(await ref.recordReferral(code, d.server.id, "100000000000000073", t), true);
+  await ref.qualifyPending({}, new Date(t.getTime() + 61 * 86_400_000));
+  assert.equal((await ref.referralOverview(A1, t)).referrals.find((r) => r.name === "Dormant RP")?.status, "expired");
+
+  for (const id of [A1, B1, C1, d.server.id]) await m.servers.deleteServer(id);
+  assert.equal((await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM referral_ledger WHERE server_id IN (?, ?)", [A1, B1]))?.n, 0);
+});

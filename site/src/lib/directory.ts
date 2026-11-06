@@ -7,6 +7,8 @@ import {
   type DirectoryCard, type DirectorySort, type ListingInput, type LiveSummary, type PublicReview, type RatingSummary, type StatKind
 } from "./directory-shared";
 import { getServer, slugify, type Server } from "./servers";
+import { publicLevels } from "./protection";
+import { ambassadors } from "./referrals";
 import { monthlyVotes } from "./votes";
 
 export { publishProblems };
@@ -160,19 +162,22 @@ async function featuredIds(now = new Date()): Promise<Set<string>> {
 
 // ---- the public directory ----
 
-export type DirectoryQuery = { q?: string; tag?: string; framework?: string; language?: string; online?: boolean; sort?: DirectorySort };
+export type DirectoryQuery = { q?: string; tag?: string; framework?: string; language?: string; online?: boolean; protectedOnly?: boolean; sort?: DirectorySort };
 
 export async function listDirectory(query: DirectoryQuery = {}, now = new Date()): Promise<{ cards: DirectoryCard[]; featured: DirectoryCard[]; total: number }> {
   const rows = await db.all<ListingRow>("SELECT server_id, slug, data_json, published, published_at, updated_at FROM directory_listings WHERE published = 1");
   const ids = rows.map((r) => r.server_id);
-  const [live, ratings, featured, votes] = await Promise.all([liveSummaries(ids, now), ratingSummaries(ids), featuredIds(now), monthlyVotes(now)]);
+  const [live, ratings, featured, votes, levels, titles] = await Promise.all([
+    liveSummaries(ids, now), ratingSummaries(ids), featuredIds(now), monthlyVotes(now), publicLevels(ids, now), ambassadors(ids)
+  ]);
   const all: DirectoryCard[] = rows.map((row) => {
     const l = toListing(row, null);
     return {
       serverId: l.serverId, slug: l.slug, name: l.name, tagline: l.tagline, logoUrl: l.logoUrl || null, bannerUrl: l.bannerUrl || null,
       tags: l.tags ?? [], framework: l.framework, language: l.language, minAge: l.minAge, featured: featured.has(l.serverId),
       live: l.showPlayers === false ? null : live.get(l.serverId) ?? { online: false, players: 0, maxClients: 0, weekPlayers: 0 },
-      rating: ratings.get(l.serverId)!, publishedAt: l.publishedAt, votes: votes.get(l.serverId) ?? 0
+      rating: ratings.get(l.serverId)!, publishedAt: l.publishedAt, votes: votes.get(l.serverId) ?? 0,
+      protection: (levels.get(l.serverId) as DirectoryCard["protection"]) ?? null, ambassador: titles.get(l.serverId) ?? null
     };
   });
   const needle = query.q?.trim().toLowerCase();
@@ -181,7 +186,8 @@ export async function listDirectory(query: DirectoryQuery = {}, now = new Date()
     (!query.tag || c.tags.includes(query.tag)) &&
     (!query.framework || c.framework === query.framework) &&
     (!query.language || c.language === query.language) &&
-    (!query.online || c.live?.online)
+    (!query.online || c.live?.online) &&
+    (!query.protectedOnly || Boolean(c.protection))
   );
   return {
     cards: sortCards(cards, query.sort ?? "relevance"),
@@ -394,8 +400,11 @@ export async function featuredSlots(serverId: string, now = new Date()): Promise
   return rows.map((r) => ({ id: Number(r.id), startsAt: r.starts_at, endsAt: r.ends_at, source: r.source, note: r.note }));
 }
 
-/** Platform owners only (checked by the API): put a server forward for some days, after its current slots. */
-export async function addFeatured(serverId: string, actor: Actor, days: number, note: string | null, now = new Date()): Promise<FeaturedSlot[]> {
+/**
+ * Put a server forward for some days, after its current slots. Platform owners ("manual", checked by the API), or a
+ * server spending the featured days earned by its referrals ("referral", lib/referrals.ts).
+ */
+export async function addFeatured(serverId: string, actor: Actor, days: number, note: string | null, now = new Date(), source: "manual" | "referral" = "manual"): Promise<FeaturedSlot[]> {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new DirectoryError("invalid_days");
   const listing = await db.get<{ published: number }>("SELECT published FROM directory_listings WHERE server_id = ?", [serverId]);
   if (!listing?.published) throw new DirectoryError("listing_not_published");
@@ -403,10 +412,10 @@ export async function addFeatured(serverId: string, actor: Actor, days: number, 
   const start = last?.ends_at ? new Date(last.ends_at) : now;
   const end = new Date(start.getTime() + days * 86_400_000);
   await db.batch([
-    stmt("INSERT INTO directory_featured (server_id, starts_at, ends_at, source, note, created_by, created_at) VALUES (?, ?, ?, 'manual', ?, ?, ?)", [
-      serverId, iso(start), iso(end), note?.slice(0, 200) || null, actor.discordId, iso(now)
+    stmt("INSERT INTO directory_featured (server_id, starts_at, ends_at, source, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+      serverId, iso(start), iso(end), source, note?.slice(0, 200) || null, actor.discordId, iso(now)
     ]),
-    auditStmt(serverId, actor, "directory_featured", null, { days, endsAt: iso(end) })
+    auditStmt(serverId, actor, "directory_featured", null, { days, endsAt: iso(end), source })
   ]);
   return featuredSlots(serverId, now);
 }

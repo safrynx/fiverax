@@ -943,6 +943,74 @@ const migrations: { name: string; sql: string }[] = [
         updated_by TEXT
       )
     `
+  },
+  {
+    // Growth: free public scan of any FiveM server from its public endpoints (no account), the "Protégé par Fiverax"
+    // badge (public id, opt-in) with its action plan, and referrals (code per server, referred servers, ledger of the
+    // featured days they earn).
+    name: "026_scan_badge_referrals",
+    sql: `
+      CREATE TABLE IF NOT EXISTS public_scans (
+        token TEXT PRIMARY KEY,
+        target TEXT NOT NULL,
+        name TEXT,
+        score INTEGER NOT NULL,
+        critical INTEGER NOT NULL DEFAULT 0,
+        high INTEGER NOT NULL DEFAULT 0,
+        medium INTEGER NOT NULL DEFAULT 0,
+        info INTEGER NOT NULL DEFAULT 0,
+        report_json TEXT NOT NULL,
+        ip_hash TEXT,
+        discord_id TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_public_scans_target ON public_scans(target, created_at);
+      CREATE INDEX IF NOT EXISTS idx_public_scans_ip ON public_scans(ip_hash, created_at);
+      CREATE INDEX IF NOT EXISTS idx_public_scans_created ON public_scans(created_at);
+      CREATE TABLE IF NOT EXISTS protection_badges (
+        server_id TEXT PRIMARY KEY,
+        public_id TEXT NOT NULL UNIQUE,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        views INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS protection_plans (
+        server_id TEXT PRIMARY KEY,
+        scan_id INTEGER,
+        plan_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS referral_codes (
+        server_id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_server_id TEXT NOT NULL,
+        referred_server_id TEXT NOT NULL UNIQUE,
+        referred_by TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reason TEXT,
+        created_at TEXT NOT NULL,
+        qualified_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_server_id, status);
+      CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status, created_at);
+      CREATE TABLE IF NOT EXISTS referral_ledger (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        days INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        referral_id INTEGER,
+        note TEXT,
+        actor_discord_id TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_referral_ledger ON referral_ledger(server_id, id)
+    `
   }
 ];
 

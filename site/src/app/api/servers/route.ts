@@ -3,6 +3,8 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { getIdentity, listAccessibleServers } from "@/lib/auth";
 import { isPlatformOwner } from "@/lib/config";
+import { recordReferral } from "@/lib/referrals";
+import { REF_COOKIE } from "@/lib/referrals-shared";
 import { createServerFor } from "@/lib/servers";
 
 export const runtime = "nodejs";
@@ -37,5 +39,10 @@ export async function POST(req: NextRequest) {
   await audit(result.server.id, { discordId: identity.discordId, username: identity.username }, "server_create", null, {
     nom: result.server.name, guilde: result.server.guildId
   });
-  return NextResponse.json({ ok: true, server: result.server });
+  // Came through a referral link (/r/<code>): the new server becomes that server's referral (checked in lib/referrals).
+  const ref = req.cookies.get(REF_COOKIE)?.value;
+  const referred = await recordReferral(ref, result.server.id, identity.discordId).catch(() => false);
+  const res = NextResponse.json({ ok: true, server: result.server, referred });
+  if (ref) res.cookies.delete(REF_COOKIE);
+  return res;
 }

@@ -242,6 +242,13 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "invalid_vote_settings": return "Récompenses invalides : vérifie les montants, les objets et les quantités.";
     case "no_rewards": return "Ajoute au moins une récompense, ou désactive les récompenses.";
     case "not_installed": return "Cette création ne vient pas de la bibliothèque.";
+    case "invalid_target": return "Adresse invalide : colle un lien cfx.re/join/xxxxxx ou une adresse ip:port (port 1024 à 65535).";
+    case "rate_limited": return "Trop de scans depuis ta connexion : réessaie dans une heure.";
+    case "unreachable": return "Le serveur ne répond pas sur cette adresse (éteint, port fermé, ou adresse de connexion différente).";
+    case "unknown_host": return "Ce nom de domaine n'existe pas.";
+    case "private_address": return "Adresse privée ou locale : seuls les serveurs publics peuvent être scannés.";
+    case "unknown_kit": return "Ressource du kit inconnue.";
+    case "not_enough_days": return "Pas assez de jours gagnés.";
     default:
       if (data.error?.startsWith("tebex_")) return tebexErrorMessage(data.error, data.message);
       if (data.error?.startsWith("ai_http_")) return `Le service IA a refusé la demande (code ${data.error.slice(8)}).`;

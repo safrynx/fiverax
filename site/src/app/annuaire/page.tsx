@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   openGraph: { title: "Annuaire des serveurs FiveM · Fiverax", description: "Joueurs en direct et avis vérifiés des serveurs FiveM RP.", type: "website" }
 };
 
-type Search = { q?: string; tag?: string; fw?: string; lang?: string; online?: string; sort?: string };
+type Search = { q?: string; tag?: string; fw?: string; lang?: string; online?: string; safe?: string; sort?: string };
 const SORT_LABEL: Record<DirectorySort, string> = { relevance: "Pertinence", players: "Joueurs en ligne", votes: "Plus votés ce mois", rating: "Mieux notés", recent: "Nouveaux" };
 
 export default async function DirectoryPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -26,12 +26,13 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
   const fw = FRAMEWORKS.some((f) => f.key === sp.fw) ? sp.fw : undefined;
   const lang = LANGUAGES.some((l) => l.key === sp.lang) ? sp.lang : undefined;
   const online = sp.online === "1";
+  const safe = sp.safe === "1";
   const q = sp.q?.trim().slice(0, 80) ?? "";
-  const { cards, featured, total } = await listDirectory({ q, tag, framework: fw, language: lang, online, sort });
-  const filtered = Boolean(q || tag || fw || lang || online);
+  const { cards, featured, total } = await listDirectory({ q, tag, framework: fw, language: lang, online, protectedOnly: safe, sort });
+  const filtered = Boolean(q || tag || fw || lang || online || safe);
   const playing = cards.reduce((n, c) => n + (c.live?.online ? c.live.players : 0), 0);
   const href = (change: Partial<Search>) => {
-    const next = { q: q || undefined, tag, fw, lang, online: online ? "1" : undefined, sort: sort === "relevance" ? undefined : sort, ...change };
+    const next = { q: q || undefined, tag, fw, lang, online: online ? "1" : undefined, safe: safe ? "1" : undefined, sort: sort === "relevance" ? undefined : sort, ...change };
     const qs = new URLSearchParams(Object.entries(next).filter((e): e is [string, string] => Boolean(e[1]))).toString();
     return qs ? `/annuaire?${qs}` : "/annuaire";
   };
@@ -73,6 +74,9 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }}>
             <input type="checkbox" name="online" value="1" defaultChecked={online} /> En ligne
           </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--muted)" }} title="Serveurs dont la sécurité est vérifiée par Fiverax">
+            <input type="checkbox" name="safe" value="1" defaultChecked={safe} /> Protégés
+          </label>
           {tag && <input type="hidden" name="tag" value={tag} />}
           <button className="btn primary">Filtrer</button>
         </form>
@@ -95,9 +99,12 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
       <section className="dir-cta">
         <div>
           <h2>Tu gères un serveur FiveM ?</h2>
-          <p>Fiverax gère ton staff, ta boutique Tebex, ton anticheat et ton serveur en jeu, et t&apos;ajoute à cet annuaire. Les joueurs te trouvent, voient qui est connecté et lisent les avis de tes joueurs.</p>
+          <p>Fiverax gère ton staff, ta boutique Tebex, ton anticheat et ton serveur en jeu, et t&apos;ajoute à cet annuaire. Les joueurs te trouvent, voient qui est connecté et lisent les avis de tes joueurs. Les serveurs « Protégés par Fiverax » remontent dans le classement.</p>
         </div>
-        <CtaLink href="/login" className="btn primary shine">Référencer mon serveur<ArrowRight size={16} /></CtaLink>
+        <div style={{ display: "grid", gap: 10 }}>
+          <CtaLink href="/login" className="btn primary shine">Référencer mon serveur<ArrowRight size={16} /></CtaLink>
+          <Link href="/scan" className="btn">Scan de sécurité gratuit</Link>
+        </div>
       </section>
     </>
   );

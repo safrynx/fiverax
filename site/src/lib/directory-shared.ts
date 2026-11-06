@@ -107,7 +107,14 @@ export type DirectoryCard = {
   publishedAt: string | null;
   /** Votes of the current month. */
   votes: number;
+  /** "Protégé par Fiverax" level, when the server shows its badge and has reached a level. */
+  protection?: "protected" | "reinforced" | "fortress" | null;
+  /** Ambassador title earned by referrals. */
+  ambassador?: string | null;
 };
+
+/** Ranking bonus of the protection levels: a protected server is a safer bet for players. */
+export const PROTECTION_BONUS = { protected: 8, reinforced: 12, fortress: 16 } as const;
 
 export type PublicReview = {
   id: number;
@@ -130,12 +137,12 @@ export const STAT_KINDS: readonly StatKind[] = ["view", "join", "discord", "stor
 export const DIRECTORY_SORTS = ["relevance", "players", "votes", "rating", "recent"] as const;
 export type DirectorySort = (typeof DIRECTORY_SORTS)[number];
 
-/** Pure: the order of the directory. Featured first; then live players, rating weighed by its number of reviews, freshness. */
+/** Pure: the order of the directory. Featured first; then live players, rating weighed by its number of reviews, votes, protection level. */
 export function sortCards(cards: DirectoryCard[], sort: DirectorySort): DirectoryCard[] {
   const score = (c: DirectoryCard) => {
     const players = c.live?.online ? c.live.players : 0;
     const rating = c.rating.average ? (c.rating.average - 3) * Math.log2(1 + c.rating.count) : 0;
-    return players * 2 + (c.live?.weekPlayers ?? 0) * 0.2 + rating * 10 + (c.live?.online ? 15 : 0) + Math.log2(1 + (c.votes ?? 0)) * 6;
+    return players * 2 + (c.live?.weekPlayers ?? 0) * 0.2 + rating * 10 + (c.live?.online ? 15 : 0) + Math.log2(1 + (c.votes ?? 0)) * 6 + (c.protection ? PROTECTION_BONUS[c.protection] : 0);
   };
   const by: Record<DirectorySort, (a: DirectoryCard, b: DirectoryCard) => number> = {
     relevance: (a, b) => Number(b.featured) - Number(a.featured) || score(b) - score(a),

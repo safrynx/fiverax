@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { Activity, ArrowRight, Blocks, Building2, Code2, CreditCard, Gamepad2, KeyRound, Mic, Radio, ScrollText, ShieldAlert, ShoppingBag, Smartphone, Sparkles, TrendingUp, Users, WandSparkles } from "lucide-react";
+import { Activity, ArrowRight, BadgeCheck, Blocks, Gift, ScanSearch, Building2, Code2, CreditCard, Gamepad2, KeyRound, Mic, Radio, ScrollText, ShieldAlert, ShoppingBag, Smartphone, Sparkles, TrendingUp, Users, WandSparkles } from "lucide-react";
 import { PERMISSIONS } from "@/lib/permissions";
 import { getIdentity } from "@/lib/auth";
 import { Mark, Wordmark } from "./brand";
+import ScanForm from "./scan/scan-form";
+import "./growth.css";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ const features = [
 const modules = [
   { icon: Users, title: "Staff", text: "Grades, avertissements, activité, bilan hebdo.", live: true },
   { icon: ShoppingBag, title: "Boutique Tebex", text: "Store Creator, ventes, paiements, promos et clients.", live: true },
-  { icon: ShieldAlert, title: "Anti-cheat", text: "Détections, bans et anti-raid Discord.", live: true },
+  { icon: ShieldAlert, title: "Anti-cheat", text: "Détections, bans, scanner, badge « Protégé » et anti-raid Discord.", live: true },
   { icon: Code2, title: "Studio IA", text: "UI, scripts et mappings générés par l'IA.", live: true },
   { icon: Building2, title: "Entreprises", text: "Suivi des entreprises et de leurs employés." }
 ];
@@ -64,6 +66,7 @@ export default async function LandingPage() {
         <div className="lp-wrap">
           <Link href="/" aria-label="Fiverax"><Wordmark size={30} /></Link>
           <nav>
+            <Link href="/scan">Scan gratuit</Link>
             <Link href="/annuaire">Annuaire des serveurs</Link>
             <a href="#boutique">Store Creator</a>
             <a href="#fonctionnalites">Fonctionnalités</a>
@@ -78,7 +81,7 @@ export default async function LandingPage() {
       <main className="lp-wrap">
         <section className="lp-hero">
           <div>
-            <a href="#boutique" className="lp-chip rise"><b>Nouveau</b>Store Creator : ta boutique Tebex, créée par l&apos;IA en une phrase</a>
+            <Link href="/scan" className="lp-chip rise"><b>Nouveau</b>Scan de sécurité gratuit de ton serveur FiveM, sans compte</Link>
             <h1 className="rise rise-1">Ton serveur FiveM,<br /><span className="gold">piloté d&apos;un seul endroit.</span></h1>
             <p className="lead rise rise-2">
               Fiverax relie ton Discord et ton serveur FiveM pour gérer ton staff : grades, avertissements, activité en vocal et en jeu, bilan de la semaine. Sans tableur, sans commandes à retenir.
@@ -102,6 +105,37 @@ export default async function LandingPage() {
           <div><b>Vocal + jeu</b><span>l&apos;activité réelle de chaque membre</span></div>
           <div><b>Dimanche</b><span>un bilan IA de la semaine</span></div>
         </div>
+
+        <section id="securite" className="lp-sect">
+          <header>
+            <div className="eyebrow">Sécurité</div>
+            <h2>Ton serveur est-il <span className="gold">vraiment protégé ?</span></h2>
+            <p>Colle le lien de ton serveur : score de sécurité en 10 secondes, sans compte. Ensuite, Fiverax analyse le code de chaque ressource, te dit quoi corriger et te donne les ressources pour le faire.</p>
+          </header>
+          <div style={{ maxWidth: 680 }}><ScanForm /></div>
+          <div className="lp-grid" style={{ marginTop: 28 }}>
+            <article className="lp-feat">
+              <span className="ic"><ScanSearch size={19} /></span>
+              <h3>Scanner de backdoors</h3>
+              <p>Code caché, événements qui donnent de l&apos;argent, injections SQL, webhooks exposés, permissions ouvertes : un score sur 100 et le correctif de chaque problème.</p>
+            </article>
+            <article className="lp-feat">
+              <span className="ic"><Sparkles size={19} /></span>
+              <h3>Plan d&apos;action IA et kit</h3>
+              <p>L&apos;IA classe ce qu&apos;il faut faire, du plus urgent au plus simple, et le kit de protection s&apos;installe sur ton serveur en un clic.</p>
+            </article>
+            <article className="lp-feat">
+              <span className="ic"><BadgeCheck size={19} /></span>
+              <h3>Badge « Protégé par Fiverax »</h3>
+              <p>Protégé, Renforcé, Forteresse : un niveau vérifié, jamais déclaratif, à afficher sur ton site et ton Discord. Les serveurs protégés remontent dans l&apos;annuaire.</p>
+            </article>
+            <article className="lp-feat">
+              <span className="ic"><Gift size={19} /></span>
+              <h3>Parrainage</h3>
+              <p>Chaque serveur que tu fais venir te rapporte 7 jours « À la une » dans l&apos;annuaire, et il en reçoit 3.</p>
+            </article>
+          </div>
+        </section>
 
         <section id="boutique" className="lp-sect lp-store">
           <header>
@@ -270,6 +304,7 @@ export default async function LandingPage() {
           <nav>
             <a href="#fonctionnalites">Fonctionnalités</a>
             <a href="#faq">FAQ</a>
+            <Link href="/scan">Scan de sécurité gratuit</Link>
             <Link href="/annuaire">Annuaire des serveurs</Link>
             <Link href="/login">Connexion</Link>
           </nav>

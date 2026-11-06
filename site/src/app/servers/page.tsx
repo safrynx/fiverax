@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { ArrowUpRight, Server as ServerIcon } from "lucide-react";
 import { listAccessibleServers, requireIdentityPage } from "@/lib/auth";
 import { getBotStatus } from "@/lib/bot-status";
 import { isPlatformOwner } from "@/lib/config";
 import { db } from "@/lib/db";
+import { referrerOfCode } from "@/lib/referrals";
+import { REF_COOKIE, WELCOME_DAYS } from "@/lib/referrals-shared";
 import { countServersCreatedBy, listManageableGuilds, maxServersPerUser } from "@/lib/servers";
 import { Frame, PageHead } from "../shell";
 import AddServer, { GuildIcon } from "../new-server-form";
@@ -17,10 +20,11 @@ export default async function ServersPage({ searchParams }: { searchParams: Prom
   const identity = await requireIdentityPage();
   const { error, deleted } = await searchParams;
   const platformOwner = isPlatformOwner(identity.discordId);
-  const [servers, guilds, created] = await Promise.all([
+  const [servers, guilds, created, invitedBy] = await Promise.all([
     listAccessibleServers(identity),
     listManageableGuilds(identity.discordId),
-    countServersCreatedBy(identity.discordId)
+    countServersCreatedBy(identity.discordId),
+    referrerOfCode((await cookies()).get(REF_COOKIE)?.value).catch(() => null)
   ]);
 
   const [counts, bots] = await Promise.all([
@@ -36,6 +40,7 @@ export default async function ServersPage({ searchParams }: { searchParams: Prom
       </PageHead>
       {error === "forbidden" && <div className="banner">Tu n&apos;as pas accès à ce serveur.</div>}
       {deleted && <div className="banner">Le serveur a été supprimé, avec toutes ses données.</div>}
+      {invitedBy && <div className="banner">Invité par <b>{invitedBy}</b> : ajoute ton serveur et relie FiveM : dès que tes premiers joueurs se connectent, tu gagnes {WELCOME_DAYS} jours « À la une » dans l&apos;annuaire (page Parrainage).</div>}
 
       {servers.length > 0 && (
         <div className="server-grid">

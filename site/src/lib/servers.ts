@@ -161,7 +161,8 @@ const SERVER_TABLES = [
   "studio_creations", "studio_versions", "audit_scans", "audit_settings",
   "network_members", "network_ban_keys", "library_items", "library_reactions",
   "directory_listings", "directory_reviews", "directory_featured", "directory_stats",
-  "player_reports", "ban_appeals", "directory_votes", "directory_vote_settings"
+  "player_reports", "ban_appeals", "directory_votes", "directory_vote_settings",
+  "protection_badges", "protection_plans", "referral_codes", "referral_ledger"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */
@@ -171,6 +172,8 @@ export async function deleteServer(id: string): Promise<boolean> {
     // Rows keyed by another table's id, removed before that table.
     stmt("DELETE FROM report_captures WHERE report_id IN (SELECT id FROM player_reports WHERE server_id = ?)", [id]),
     stmt("DELETE FROM directory_review_reports WHERE review_id IN (SELECT id FROM directory_reviews WHERE server_id = ?)", [id]),
+    // Referrals: its own are deleted; as a referred server, a qualified referral stays in the referrer's history.
+    stmt("DELETE FROM referrals WHERE referrer_server_id = ? OR (referred_server_id = ? AND status != 'qualified')", [id, id]),
     ...SERVER_TABLES.map((table) => stmt(`DELETE FROM ${table} WHERE server_id = ?`, [id])),
     stmt("DELETE FROM bot_status WHERE key LIKE ? OR key = ?", [`${id}:%`, `lock:review:${id}`]),
     stmt("DELETE FROM servers WHERE id = ?", [id])
