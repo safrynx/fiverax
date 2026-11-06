@@ -315,28 +315,35 @@ export async function handleAgentCall(serverId: string, req: AgentRequest, now =
       )
     );
   }
-  // Answers to the rewards of votes (game/reward commands), and whether rewards wait for a player in game.
-  // (Imported here: lib/votes.ts queues its rewards through this file.)
+  // Answers to the rewards of votes and giveaways (game/reward commands), and whether rewards wait for a player in game.
+  // (Imported here: lib/votes.ts and lib/portal-site.ts queue their rewards through this file.)
   const votes = await import("./votes");
-  if (req.results.length) writes.push(...votes.rewardResultStmts(serverId, req.results, now));
+  const portalSite = await import("./portal-site");
+  if (req.results.length) writes.push(...votes.rewardResultStmts(serverId, req.results, now), ...portalSite.giveawayResultStmts(serverId, req.results, now));
   // The last four statements are read back below: keep them last and in this order.
   writes.push(
     stmt("UPDATE fivem_commands SET status = 'sent', sent_at = ? WHERE server_id = ? AND status = 'pending' RETURNING id, kind, payload", [iso(now), serverId]),
     stmt("SELECT watched_at FROM fivem_state WHERE server_id = ?", [serverId]),
     stmt("SELECT rev FROM security_settings WHERE server_id = ?", [serverId]),
-    stmt("SELECT COUNT(*) AS n FROM directory_votes WHERE server_id = ? AND reward_status = 'pending'", [serverId])
+    stmt(
+      `SELECT (SELECT COUNT(*) FROM directory_votes WHERE server_id = ? AND reward_status = 'pending') AS n,
+              (SELECT COUNT(*) FROM portal_giveaway_winners WHERE server_id = ? AND reward_status = 'pending') AS g`,
+      [serverId, serverId]
+    )
   );
   const results = await db.batch(writes);
   const claimed = results[results.length - 4].rows;
   const watchedAt = results[results.length - 3].rows[0]?.watched_at as string | null | undefined;
   const rev = Number(results[results.length - 2].rows[0]?.rev ?? 1);
   const rewardsWaiting = Number(results[results.length - 1].rows[0]?.n ?? 0);
+  const giveawaysWaiting = Number(results[results.length - 1].rows[0]?.g ?? 0);
 
   const commands = claimed
     .map((row) => ({ id: Number(row.id), kind: row.kind as CommandKind, payload: JSON.parse(String(row.payload)) as Record<string, unknown> }))
     .sort((a, b) => a.id - b.id);
   // Fresh players list: hand the waiting rewards to voters now in game (picked up on the next call).
   if (rewardsWaiting > 0 && req.state) await votes.deliverPendingRewards(serverId, now);
+  if (giveawaysWaiting > 0 && req.state) await portalSite.deliverGiveawayRewards(serverId, now);
   const watched = Boolean(watchedAt && now.getTime() - new Date(watchedAt).getTime() < WATCH_MS);
   const response: AgentResponse = { ok: true, commands, interval: watched || commands.length ? FAST_INTERVAL : IDLE_INTERVAL, watch: watched };
   if (req.secRev !== rev) {

@@ -162,7 +162,8 @@ const SERVER_TABLES = [
   "network_members", "network_ban_keys", "library_items", "library_reactions",
   "directory_listings", "directory_reviews", "directory_featured", "directory_stats",
   "player_reports", "ban_appeals", "directory_votes", "directory_vote_settings",
-  "protection_badges", "protection_plans", "referral_codes", "referral_ledger"
+  "protection_badges", "protection_plans", "referral_codes", "referral_ledger",
+  "portal_sites", "portal_form_responses", "portal_giveaways", "portal_giveaway_entries", "portal_giveaway_winners"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */

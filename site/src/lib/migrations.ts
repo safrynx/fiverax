@@ -1011,6 +1011,72 @@ const migrations: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_referral_ledger ON referral_ledger(server_id, id)
     `
+  },
+  {
+    // Server player portal (/joueur/<slug>): a page built from blocks (draft + published), answers to its forms,
+    // giveaway entries, draws and winners (their in-game reward goes through the agent like the votes' ones).
+    name: "027_player_portal",
+    sql: `
+      CREATE TABLE IF NOT EXISTS portal_sites (
+        server_id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        draft_json TEXT NOT NULL,
+        published_json TEXT,
+        published_at TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS portal_form_responses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        form_title TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        questions_json TEXT NOT NULL,
+        answers_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new',
+        reply TEXT,
+        decided_by TEXT,
+        decided_name TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_portal_responses ON portal_form_responses(server_id, status, id);
+      CREATE INDEX IF NOT EXISTS idx_portal_responses_user ON portal_form_responses(server_id, block_id, discord_id);
+      CREATE TABLE IF NOT EXISTS portal_giveaways (
+        server_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        drawn_at TEXT,
+        drawn_by TEXT,
+        PRIMARY KEY (server_id, block_id)
+      );
+      CREATE TABLE IF NOT EXISTS portal_giveaway_entries (
+        server_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (server_id, block_id, discord_id)
+      );
+      CREATE TABLE IF NOT EXISTS portal_giveaway_winners (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        block_id TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        reward_json TEXT,
+        reward_status TEXT NOT NULL DEFAULT 'none',
+        reward_command_id INTEGER,
+        reward_attempts INTEGER NOT NULL DEFAULT 0,
+        reward_note TEXT,
+        rewarded_at TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (server_id, block_id, discord_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_portal_winners_reward ON portal_giveaway_winners(server_id, reward_status)
+    `
   }
 ];
 

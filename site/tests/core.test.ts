@@ -476,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 26);
+  assert.equal(Number(before), 27);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -2700,4 +2700,121 @@ test("referrals: one referrer per server, no self-referral, validated once the s
 
   for (const id of [A1, B1, C1, d.server.id]) await m.servers.deleteServer(id);
   assert.equal((await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM referral_ledger WHERE server_id IN (?, ?)", [A1, B1]))?.n, 0);
+});
+
+// ---- server player portal ----
+
+test("server portal: designs are cleaned (unknown blocks, unsafe links), answers are checked against the questions", async () => {
+  const ps = await import("../src/lib/portal-site-shared");
+  const design = ps.cleanDesign({
+    title: "  Neon  ", accent: "#ABCDEF", banner: "javascript:alert(1)", logo: "http://insecure.png",
+    blocks: [
+      { id: "a", type: "buttons", p: { items: [{ label: "Discord", url: "discord.gg/neon" }, { label: "Évil", url: "javascript:alert(1)" }, { label: "Join", url: "cfx.re/join/abc123" }] } },
+      { id: "a", type: "hero", p: {} },
+      { type: "script", p: { code: "<script>" } },
+      { id: "g", type: "giveaway", p: { winners: 999, minHours: -5, rewardType: "money", rewardAccount: "bank", rewardAmount: 2500 } }
+    ]
+  });
+  assert.deepEqual([design.title, design.accent, design.banner, design.logo], ["Neon", "#abcdef", "", ""]);
+  assert.deepEqual(design.blocks.map((b) => b.type), ["buttons", "hero", "giveaway"]);
+  assert.notEqual(design.blocks[1].id, "a"); // duplicate ids are renamed
+  assert.deepEqual((design.blocks[0].p.items as { url: string }[]).map((i) => i.url), ["https://discord.gg/neon", "", "https://cfx.re/join/abc123"]);
+  assert.deepEqual([design.blocks[2].p.winners, design.blocks[2].p.minHours], [20, 0]);
+  assert.deepEqual(ps.giveawayReward(design.blocks[2]), { type: "money", account: "bank", amount: 2500 });
+  assert.equal(ps.giveawayReward(ps.newBlock("giveaway")), null);
+  assert.equal(ps.starterDesign("Neon City").blocks[0].p.title, "Bienvenue sur Neon City");
+
+  const form = ps.cleanBlock({ type: "form", p: { questions: [
+    { label: "Âge", type: "number", required: "1" }, { label: "Job", type: "select", options: "Police, EMS", required: "" }, { label: "Majeur ?", type: "yesno", required: "1" }, { label: "", type: "text" }
+  ] } })!;
+  const qs = ps.formQuestions(form);
+  assert.deepEqual(qs.map((q) => [q.label, q.type, q.required, q.options]), [["Âge", "number", true, []], ["Job", "select", false, ["Police", "EMS"]], ["Majeur ?", "yesno", true, []]]);
+  assert.deepEqual(ps.checkAnswers(qs, ["19", "", "Oui"]), ["19", "", "Oui"]);
+  assert.throws(() => ps.checkAnswers(qs, ["", "", "Oui"]), /answer_required:0/);
+  assert.throws(() => ps.checkAnswers(qs, ["dix-neuf", "", "Oui"]), /answer_number:0/);
+  assert.throws(() => ps.checkAnswers(qs, ["19", "Pompier", "Oui"]), /answer_choice:1/);
+  assert.throws(() => ps.checkAnswers(qs, ["19", "", "Peut-être"]), /answer_choice:2/);
+});
+
+test("server portal: draft then published page, forms answered once and decided by the staff, giveaways entered, drawn once, rewarded in game", async () => {
+  const site = await import("../src/lib/portal-site");
+  const ps = await import("../src/lib/portal-site-shared");
+  const created = await m.servers.createServer({ name: "Portail City", guildId: "598700000000000021", createdBy: A });
+  assert.ok(created.ok);
+  const server = created.server;
+  const staff = { discordId: A, username: "Owner" };
+  const first = await site.ensureSite(server);
+  assert.equal(first.slug, "portail-city");
+  assert.equal(first.published, null);
+  assert.equal(await site.getPublicPortal("portail-city", null), null); // not published yet
+
+  const form = ps.newBlock("form");
+  form.p.questions = [{ label: "Pseudo RP", type: "text", options: "", required: "1" }];
+  form.p.minHours = 1;
+  const giveaway = ps.newBlock("giveaway");
+  Object.assign(giveaway.p, { title: "Voiture", minHours: 0, winners: 1, rewardType: "item", rewardItem: "car_key", rewardItemLabel: "Clé", rewardCount: 1, endsAt: "2026-07-01T20:00:00.000Z" });
+  await site.saveDraft(server, staff, { ...first.draft, blocks: [ps.newBlock("hero"), form, giveaway] });
+  await site.publishSite(server, staff);
+  await assert.rejects(site.setSlug(server, staff, "api"), /invalid_slug/);
+  await site.setSlug(server, staff, "neon-portal");
+  assert.equal(await site.publishedSlug(server.id), "neon-portal");
+
+  const player = { discordId: "100000000000000091", username: "Lucas", avatarUrl: null };
+  const t = new Date("2026-06-20T12:00:00Z");
+  let page = await site.getPublicPortal("neon-portal", player, {}, t);
+  assert.deepEqual([page?.ctx.forms[form.id].reason, page?.ctx.giveaways[giveaway.id].reason, page?.ctx.stats?.linked], ["playtime", null, false]);
+  await assert.rejects(site.submitForm("neon-portal", player, form.id, ["Lucas"], t), /form_playtime/);
+
+  // The player plays 2 h on the server (Discord linked in FiveM).
+  await agentCall(server.id, { events: [{ type: "join", session: "pp1", name: "Lucas", identifiers: ["license:pp1", `discord:${player.discordId}`], timestamp: Math.floor(t.getTime() / 1000) - 7200 }] }, t);
+  await agentCall(server.id, { events: [{ type: "leave", session: "pp1", timestamp: Math.floor(t.getTime() / 1000) }] }, t);
+  await assert.rejects(site.submitForm("neon-portal", player, form.id, [""], t), /answer_required/);
+  await assert.rejects(site.submitForm("neon-portal", player, "nope", ["x"], t), /unknown_block/);
+  const responseId = await site.submitForm("neon-portal", player, form.id, ["Lucas Moreau"], t);
+  await assert.rejects(site.submitForm("neon-portal", player, form.id, ["Encore"], t), /form_once/);
+  const [resp] = await site.listResponses(server.id);
+  assert.deepEqual([resp.id, resp.username, resp.answers, resp.playSeconds], [responseId, "Lucas", [{ question: "Pseudo RP", answer: "Lucas Moreau" }], 7200]);
+  await site.decideResponse(server.id, staff, responseId, "accepted", "Bienvenue dans l'équipe !");
+  assert.equal(await site.countNewResponses(server.id), 0);
+  page = await site.getPublicPortal("neon-portal", player, {}, t);
+  assert.deepEqual(page?.ctx.forms[form.id].responses.map((r) => [r.status, r.reply]), [["accepted", "Bienvenue dans l'équipe !"]]);
+  assert.equal(page?.ctx.stats?.playSeconds, 7200);
+
+  // Giveaway: entries, leaving, the draw happens once (tick at the end date), the winner's reward waits for them in game.
+  const other = { discordId: "100000000000000092", username: "Nina", avatarUrl: null };
+  assert.equal((await site.enterGiveaway("neon-portal", player, giveaway.id, t)).entered, true);
+  await site.enterGiveaway("neon-portal", other, giveaway.id, t);
+  await site.leaveGiveaway("neon-portal", other, giveaway.id, t);
+  assert.equal((await site.getPublicPortal("neon-portal", null, {}, t))?.ctx.giveaways[giveaway.id].entries, 1);
+  assert.equal(await site.drawDueGiveaways(t), 0); // not ended yet
+  const end = new Date("2026-07-01T21:00:00Z");
+  await assert.rejects(site.enterGiveaway("neon-portal", other, giveaway.id, end), /giveaway_closed/);
+  assert.equal(await site.drawDueGiveaways(end), 1);
+  assert.equal(await site.drawDueGiveaways(end), 0);
+  await assert.rejects(site.drawGiveaway(server.id, staff, giveaway.id, end), /giveaway_drawn/);
+  page = await site.getPublicPortal("neon-portal", player, {}, end);
+  assert.deepEqual([page?.ctx.giveaways[giveaway.id].drawn, page?.ctx.giveaways[giveaway.id].won, page?.ctx.giveaways[giveaway.id].winners], [true, true, ["Lucas"]]);
+  const [g] = await site.giveawaysForStaff(server);
+  assert.deepEqual([g.entries, g.winners.map((w) => [w.username, w.reward])], [1, [["Lucas", "pending"]]]);
+
+  // Lucas comes back in game: after a minute, the agent gets the reward command, then confirms it.
+  const back = new Date(end.getTime() + 3600_000);
+  const ts = Math.floor(back.getTime() / 1000);
+  await agentCall(server.id, {
+    events: [{ type: "join", session: "pp2", name: "Lucas", identifiers: ["license:pp1", `discord:${player.discordId}`], timestamp: ts - 120 }],
+    state: { hostname: "x", maxClients: 8, uptime: 1, players: [{ id: 7, name: "Lucas", session: "pp2", ping: 10 }], resources: [] }
+  }, back);
+  const handed = await agentCall(server.id, {}, back);
+  assert.equal(handed.commands.length, 1);
+  assert.deepEqual([handed.commands[0].kind, handed.commands[0].payload.target], ["game", 7]);
+  assert.match(JSON.stringify(handed.commands[0].payload), /car_key/);
+  assert.equal(m.agent.COMMANDS.game.schema.safeParse(handed.commands[0].payload).success, true);
+  await agentCall(server.id, { results: [{ id: handed.commands[0].id, ok: true, message: "ok" }] }, back);
+  assert.deepEqual((await site.giveawaysForStaff(server))[0].winners.map((w) => w.reward), ["delivered"]);
+
+  await site.unpublishSite(server, staff);
+  assert.equal(await site.getPublicPortal("neon-portal", null), null);
+  assert.ok(await site.getPublicPortal("neon-portal", null, { draft: true }));
+  await m.servers.deleteServer(server.id);
+  assert.equal(await db.get("SELECT 1 FROM portal_form_responses WHERE server_id = ?", [server.id]), undefined);
 });

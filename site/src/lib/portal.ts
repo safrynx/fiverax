@@ -45,6 +45,8 @@ export type PortalServer = {
   inGame: boolean;
   bans: PortalBan[];
   nextVoteAt: string | null;
+  /** The server's own player portal (/joueur/<slug>), when published. */
+  portalSlug: string | null;
 };
 
 export type Portal = {
@@ -104,12 +106,13 @@ export async function portalFor(identity: Identity, now = new Date()): Promise<P
           name = data.name || name;
         } catch { /* defaults */ }
       }
+      const portal = await db.get<{ slug: string }>("SELECT slug FROM portal_sites WHERE server_id = ? AND published_json IS NOT NULL", [p.server_id]);
       const last = voteBy.get(p.server_id);
       const next = last ? new Date(new Date(last).getTime() + VOTE_COOLDOWN_HOURS * 3600_000) : null;
       entry = {
         serverId: p.server_id, name, iconUrl: server.iconUrl, slug: listing?.published ? listing.slug : null, logoUrl: logo,
         characterNames: [], playSeconds: 0, sessions: 0, firstSeenAt: p.first_seen_at, lastSeenAt: p.last_seen_at, inGame: false, bans: [],
-        nextVoteAt: next && next > now ? iso(next) : null
+        nextVoteAt: next && next > now ? iso(next) : null, portalSlug: portal?.slug ?? null
       };
       byServer.set(p.server_id, entry);
     }

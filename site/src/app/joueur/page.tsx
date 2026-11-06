@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clock, Gamepad2, LogIn, ShieldBan, ThumbsUp } from "lucide-react";
+import { Clock, Gamepad2, LayoutPanelTop, LogIn, ShieldBan, ThumbsUp } from "lucide-react";
 import { getIdentity } from "@/lib/auth";
 import { OUTCOME_LABEL, STATUS_LABEL } from "@/lib/blackbox-shared";
 import { formatDateTime, formatDuration } from "@/lib/format";
@@ -61,6 +61,7 @@ export default async function PlayerPortal() {
                   <div><b>{s.sessions}</b><span>session{s.sessions > 1 ? "s" : ""}</span></div>
                   <div><b>{new Date(s.firstSeenAt).toLocaleDateString("fr-FR", { month: "short", year: "numeric" })}</b><span>depuis</span></div>
                 </div>
+                {s.portalSlug && <Link href={`/joueur/${s.portalSlug}`} className="btn primary"><LayoutPanelTop size={14} />Espace joueurs du serveur</Link>}
                 {s.slug && (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {s.nextVoteAt

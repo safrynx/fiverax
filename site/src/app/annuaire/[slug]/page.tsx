@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Gamepad2, Globe, MessageCircle, ShieldCheck, ShoppingBag, Users } from "lucide-react";
+import { ArrowLeft, Gamepad2, Globe, LayoutPanelTop, MessageCircle, ShieldCheck, ShoppingBag, Users } from "lucide-react";
 import { can, getIdentity, getSessionUser } from "@/lib/auth";
 import { getPublicListing, reviewEligibility } from "@/lib/directory";
 import { discordUrl, joinUrl, LANGUAGES, tagLabel } from "@/lib/directory-shared";
@@ -11,6 +11,7 @@ import { voteState } from "@/lib/votes";
 import { publicProtectionOf } from "@/lib/protection";
 import { levelOf } from "@/lib/protection-shared";
 import { ensureCode } from "@/lib/referrals";
+import { publishedSlug } from "@/lib/portal-site";
 import Reviews from "./reviews";
 import VoteBox from "./vote";
 
@@ -57,11 +58,12 @@ export default async function ListingPage(props: Params) {
   const { listing: l, live, rating } = data;
   const join = l.connect ? joinUrl(l.connect) : null;
   const discord = l.discord ? discordUrl(l.discord) : null;
-  const [eligibility, votes, protection, refCode] = await Promise.all([
+  const [eligibility, votes, protection, refCode, portalSlug] = await Promise.all([
     reviewEligibility(l.serverId, viewer),
     voteState(l.serverId, viewer ? { discordId: viewer.discordId, username: viewer.username } : null, l.published),
     publicProtectionOf(l.serverId).catch(() => null),
-    l.published ? ensureCode(l.serverId).catch(() => null) : Promise.resolve(null)
+    l.published ? ensureCode(l.serverId).catch(() => null) : Promise.resolve(null),
+    publishedSlug(l.serverId).catch(() => null)
   ]);
   const shield = protection && protection.level !== "none" ? levelOf(protection.level) : null;
   const lang = LANGUAGES.find((x) => x.key === l.language)?.label ?? l.language;
@@ -105,6 +107,7 @@ export default async function ListingPage(props: Params) {
         {discord && <TrackLink slug={l.slug} kind="discord" href={discord} className="btn"><MessageCircle size={16} />Discord</TrackLink>}
         {data.storeSlug && <TrackLink slug={l.slug} kind="store" href={`/store/${data.storeSlug}`} className="btn" external={false}><ShoppingBag size={16} />Boutique</TrackLink>}
         {l.website && <TrackLink slug={l.slug} kind="website" href={l.website} className="btn"><Globe size={16} />Site</TrackLink>}
+        {portalSlug && <Link href={`/joueur/${portalSlug}`} className="btn"><LayoutPanelTop size={16} />Espace joueurs</Link>}
       </div>
 
       <div className="dir-layout">

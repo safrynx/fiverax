@@ -248,6 +248,9 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "unknown_host": return "Ce nom de domaine n'existe pas.";
     case "private_address": return "Adresse privée ou locale : seuls les serveurs publics peuvent être scannés.";
     case "cfx_unresolved": return "Cfx.re n'a pas donné l'adresse de ce code. Colle plutôt l'adresse du serveur (ip:port ou domaine:port, celle de ton hébergeur ou de txAdmin).";
+    case "unknown_block": return "Ce bloc n'est pas dans la version publiée : publie d'abord le portail.";
+    case "giveaway_drawn": return "Ce giveaway a déjà été tiré.";
+    case "unknown_response": return "Cette réponse n'existe plus.";
     case "unknown_kit": return "Ressource du kit inconnue.";
     case "not_enough_days": return "Pas assez de jours gagnés.";
     default:

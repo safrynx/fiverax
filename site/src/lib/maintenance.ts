@@ -3,6 +3,7 @@ import { pruneCaptures } from "./blackbox";
 import { pruneSecurityData } from "./security";
 import { pruneShopEvents } from "./tebex";
 import { qualifyPending } from "./referrals";
+import { drawDueGiveaways } from "./portal-site";
 import { closeStaleFivemSessions } from "./fivem";
 import { getServerStatus, setServerStatus } from "./bot-status";
 import { aiConfigured, generateWeeklyReviews } from "./review";
@@ -40,11 +41,15 @@ export async function runMaintenance() {
   const screenshotsPruned = await pruneSecurityData();
   const shopEventsPruned = await pruneShopEvents();
   const capturesPruned = await pruneCaptures();
+  const giveawaysDrawn = await drawDueGiveaways().catch((e) => {
+    console.error("[portal] giveaway draw failed:", e instanceof Error ? e.message : e);
+    return 0;
+  });
   const referralsQualified = await qualifyPending().catch((e) => {
     console.error("[referrals] qualify failed:", e instanceof Error ? e.message : e);
     return 0;
   });
   const due: Server[] = [];
   for (const server of await listServers()) if (await reviewDue(server)) due.push(server);
-  return { staleFivemClosed, stalePlayersClosed, screenshotsPruned, shopEventsPruned, capturesPruned, referralsQualified, reviewDue: due };
+  return { staleFivemClosed, stalePlayersClosed, screenshotsPruned, shopEventsPruned, capturesPruned, referralsQualified, giveawaysDrawn, reviewDue: due };
 }
