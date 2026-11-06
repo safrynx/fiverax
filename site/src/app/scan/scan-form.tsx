@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2 } from "lucide-react";
-import { parseTarget } from "@/lib/external-scan-shared";
+import { endpointFromListing, parseTarget } from "@/lib/external-scan-shared";
 import { describeApiError } from "../ui";
 
 /** The free scan's input: a cfx.re/join link or an address, then the report page. */
@@ -15,10 +15,19 @@ export default function ScanForm({ initial = "", compact = false }: { initial?: 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!parseTarget(value)) return setError(describeApiError({ error: "invalid_target" }, 400));
+    const target = parseTarget(value);
+    if (!target) return setError(describeApiError({ error: "invalid_target" }, 400));
     setBusy(true);
     try {
-      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target: value }) });
+      // A cfx.re code: first ask the official server list from the visitor's browser (as servers.fivem.net does);
+      // Cfx.re often refuses the same request from the panel's hosting. Failure is fine: the panel then tries itself.
+      let address: string | null = null;
+      if (target.kind === "cfx") {
+        address = await fetch(`https://servers-frontend.fivem.net/api/servers/single/${encodeURIComponent(target.code)}`, {
+          credentials: "omit", signal: AbortSignal.timeout(5000)
+        }).then((r) => (r.ok ? r.json() : null)).then(endpointFromListing).catch(() => null);
+      }
+      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target: address ?? value }) });
       const data = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
       if (!res.ok || !data.token) {
         setError(describeApiError(data, res.status));

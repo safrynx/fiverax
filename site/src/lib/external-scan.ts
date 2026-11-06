@@ -151,7 +151,10 @@ async function resolveCfx(code: string): Promise<string | null> {
     const res = await fetch(`https://cfx.re/join/${encodeURIComponent(code)}`, { redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS), headers: { "User-Agent": "FiveraxScanner/1.0" } });
     await res.body?.cancel().catch(() => {});
     const target = parseCitizenUrl(res.headers.get("x-citizenfx-url"));
-    if (!target) return null;
+    if (!target) {
+      console.warn(`[scan] cfx.re/join/${code}: HTTP ${res.status}, no x-citizenfx-url`);
+      return null;
+    }
     return "proxy" in target ? target.proxy : await safeBase(target.host, target.port);
   } catch (error) {
     if (error instanceof ScanError) throw error;
@@ -162,7 +165,10 @@ async function resolveCfx(code: string): Promise<string | null> {
 /** The official server list (fallback when the server does not answer directly). */
 async function fromServerList(code: string): Promise<ExternalData | null> {
   const data = record(record(await getJson(`https://servers-frontend.fivem.net/api/servers/single/${encodeURIComponent(code)}`)).Data);
-  if (!Object.keys(data).length) return null;
+  if (!Object.keys(data).length) {
+    console.warn(`[scan] server list: no data for ${code}`);
+    return null;
+  }
   const v = vars(data.vars);
   return {
     hostname: typeof data.hostname === "string" ? data.hostname : null,
@@ -190,7 +196,7 @@ async function fromCfx(code: string): Promise<ExternalData> {
     }
   }
   const listed = await fromServerList(code);
-  if (!listed) throw new ScanError("unknown_server");
+  if (!listed) throw new ScanError("cfx_unresolved");
   return listed;
 }
 

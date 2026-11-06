@@ -247,6 +247,7 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "unreachable": return "Le serveur ne répond pas sur cette adresse (éteint, port fermé, ou adresse de connexion différente).";
     case "unknown_host": return "Ce nom de domaine n'existe pas.";
     case "private_address": return "Adresse privée ou locale : seuls les serveurs publics peuvent être scannés.";
+    case "cfx_unresolved": return "Cfx.re n'a pas donné l'adresse de ce code. Colle plutôt l'adresse du serveur (ip:port ou domaine:port, celle de ton hébergeur ou de txAdmin).";
     case "unknown_kit": return "Ressource du kit inconnue.";
     case "not_enough_days": return "Pas assez de jours gagnés.";
     default:

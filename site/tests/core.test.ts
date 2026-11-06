@@ -2514,6 +2514,9 @@ test("free scan: targets, public addresses only (SSRF), analysis of what a serve
   const hidden = x.analyzeExternal({ vars: {}, varsHidden: true, resources: null, players: null }, null);
   assert.deepEqual(hidden.findings.map((f) => f.rule).sort(), ["code_not_scanned", "hidden_resources"]);
 
+  assert.equal(x.endpointFromListing({ Data: { connectEndPoints: ["https://abc-def.users.cfx.re/", "51.75.12.34:30120"] } }), "51.75.12.34:30120");
+  assert.equal(x.endpointFromListing({ Data: { connectEndPoints: ["127.0.0.1:22"] } }), null);
+  assert.equal(x.endpointFromListing(null), null);
   const scan = await import("../src/lib/external-scan");
   assert.deepEqual(scan.parseCitizenUrl("http://51.75.12.34:30120/"), { host: "51.75.12.34", port: 30120 });
   assert.deepEqual(scan.parseCitizenUrl("https://abc12-x9y8z7.users.cfx.re/"), { proxy: "https://abc12-x9y8z7.users.cfx.re" });

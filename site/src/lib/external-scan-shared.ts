@@ -30,6 +30,21 @@ export function parseTarget(raw: string): ScanTarget | null {
   return { kind: "host", host, port };
 }
 
+/**
+ * Pure: the address ("ip:port") of a server from the official list's answer for its cfx.re code
+ * ({ Data: { connectEndPoints: ["1.2.3.4:30120", …] } }). Proxy URLs and anything parseTarget refuses are skipped.
+ */
+export function endpointFromListing(json: unknown): string | null {
+  const data = (json as { Data?: { connectEndPoints?: unknown } } | null)?.Data;
+  const list = Array.isArray(data?.connectEndPoints) ? data.connectEndPoints : [];
+  for (const e of list) {
+    if (typeof e !== "string" || /^https?:\/\//i.test(e)) continue;
+    const t = parseTarget(e);
+    if (t?.kind === "host") return targetLabel(t);
+  }
+  return null;
+}
+
 /** Pure: the key two scans of the same server share (cache, history). */
 export const targetKey = (t: ScanTarget) => (t.kind === "cfx" ? `cfx:${t.code}` : `${t.host}:${t.port}`);
 
