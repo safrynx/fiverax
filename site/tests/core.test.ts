@@ -476,7 +476,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 25);
+  assert.equal(Number(before), 26);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -2509,6 +2509,17 @@ test("free scan: targets, public addresses only (SSRF), analysis of what a serve
   assert.equal(clean.score, 100);
   assert.deepEqual([clean.facts.fiverax, clean.facts.framework, clean.facts.anticheats], [true, "Qbox", ["Fiverax"]]);
   assert.deepEqual(x.lockFindings(risky.findings).map((f) => Object.keys(f).sort().join(","))[0], "category,rule,severity,title");
+
+  // A server hiding info.json: its convars are unknown, not reported as off.
+  const hidden = x.analyzeExternal({ vars: {}, varsHidden: true, resources: null, players: null }, null);
+  assert.deepEqual(hidden.findings.map((f) => f.rule).sort(), ["code_not_scanned", "hidden_resources"]);
+
+  const scan = await import("../src/lib/external-scan");
+  assert.deepEqual(scan.parseCitizenUrl("http://51.75.12.34:30120/"), { host: "51.75.12.34", port: 30120 });
+  assert.deepEqual(scan.parseCitizenUrl("https://abc12-x9y8z7.users.cfx.re/"), { proxy: "https://abc12-x9y8z7.users.cfx.re" });
+  assert.equal(scan.parseCitizenUrl("http://51.75.12.34/"), null); // port 80
+  assert.equal(scan.parseCitizenUrl("file:///etc/passwd"), null);
+  assert.equal(scan.parseCitizenUrl(null), null);
 });
 
 test("free scan: stored, the same server answered from cache for 10 min, rate limited per address", async () => {
@@ -2587,7 +2598,7 @@ test("protection: levels only from verified checks, rules plan, server.cfg, kit 
 test("protection: badge off until turned on, public page without problems, kit installed (then updated) in the Studio", async () => {
   const protection = await import("../src/lib/protection");
   const { badgeSvg } = await import("../src/lib/badge-svg");
-  const created = await m.servers.createServer({ name: "Badge City", guildId: "560000000000000001", createdBy: A });
+  const created = await m.servers.createServer({ name: "Badge City", guildId: "598700000000000001", createdBy: A });
   assert.ok(created.ok);
   const server = created.server;
   const badge = await protection.ensureBadge(server);
@@ -2630,9 +2641,9 @@ test("referrals: one referrer per server, no self-referral, validated once the s
   const directory = await import("../src/lib/directory");
   const X = "100000000000000071";
   const Y = "100000000000000072";
-  const a = await m.servers.createServer({ name: "Parrain RP", guildId: "570000000000000001", createdBy: X });
-  const b = await m.servers.createServer({ name: "Filleul RP", guildId: "570000000000000002", createdBy: Y });
-  const c = await m.servers.createServer({ name: "Autre de X", guildId: "570000000000000003", createdBy: X });
+  const a = await m.servers.createServer({ name: "Parrain RP", guildId: "598700000000000011", createdBy: X });
+  const b = await m.servers.createServer({ name: "Filleul RP", guildId: "598700000000000012", createdBy: Y });
+  const c = await m.servers.createServer({ name: "Autre de X", guildId: "598700000000000013", createdBy: X });
   assert.ok(a.ok && b.ok && c.ok);
   const [A1, B1, C1] = [a.server.id, b.server.id, c.server.id];
   const code = await ref.ensureCode(A1);
@@ -2678,7 +2689,7 @@ test("referrals: one referrer per server, no self-referral, validated once the s
   assert.deepEqual(slots.map((s) => [s.source, (new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 86_400_000]), [["referral", 5]]);
 
   // Pending referrals expire after 60 days.
-  const d = await m.servers.createServer({ name: "Dormant RP", guildId: "570000000000000004", createdBy: "100000000000000073" });
+  const d = await m.servers.createServer({ name: "Dormant RP", guildId: "598700000000000014", createdBy: "100000000000000073" });
   assert.ok(d.ok);
   assert.equal(await ref.recordReferral(code, d.server.id, "100000000000000073", t), true);
   await ref.qualifyPending({}, new Date(t.getTime() + 61 * 86_400_000));

@@ -101,11 +101,10 @@ async function safeBase(host: string, port: number): Promise<string> {
   return `http://${address.includes(":") ? `[${address}]` : address}:${port}`;
 }
 
-/** The public data of a FiveM server address: info.json, players.json, dynamic.json. */
-async function fromAddress(host: string, port: number): Promise<ExternalData> {
-  const base = await safeBase(host, port);
+/** The public data of a FiveM server from its base URL (already checked): info.json, players.json, dynamic.json. */
+async function fromBase(base: string): Promise<ExternalData> {
   const [info, list, dyn] = await Promise.all([getJson(`${base}/info.json`), getJson(`${base}/players.json`), getJson(`${base}/dynamic.json`)]);
-  if (!info) throw new ScanError("unreachable");
+  if (!info && !dyn) throw new ScanError("unreachable");
   const i = record(info);
   const d = record(dyn);
   const v = vars(i.vars);
@@ -114,40 +113,85 @@ async function fromAddress(host: string, port: number): Promise<ExternalData> {
     projectName: v.sv_projectName ?? null,
     server: typeof i.server === "string" ? i.server : null,
     vars: v,
-    resources: Array.isArray(i.resources) ? strings(i.resources) : null,
+    // Some servers hide info.json (sv_requestParanoia): their convars are unknown, not "off".
+    varsHidden: !info,
+    resources: info && Array.isArray(i.resources) ? strings(i.resources) : null,
     players: players(list),
     clients: Number(d.clients) || null,
     maxClients: Number(d.sv_maxclients) || Number(v.sv_maxClients) || null
   };
 }
 
-/** A cfx.re/join code through the official server list, plus players.json when the server answers directly. */
-async function fromCfx(code: string): Promise<ExternalData> {
-  const json = record(await getJson(`https://servers-frontend.fivem.net/api/servers/single/${encodeURIComponent(code)}`));
-  const data = record(json.Data);
-  if (!Object.keys(data).length) throw new ScanError("unknown_server");
-  const v = vars(data.vars);
-  let list = players(data.players);
-  // The list hides the endpoints of the players: ask the server itself when it is reachable directly.
-  const endpoint = strings(data.connectEndPoints)[0];
-  const direct = endpoint ? /^([0-9.]+):(\d{2,5})$/.exec(endpoint) : null;
-  if (direct && isPublicIp(direct[1]) && Number(direct[2]) >= 1024) {
-    const fresh = players(await getJson(`http://${direct[1]}:${direct[2]}/players.json`));
-    if (fresh) list = fresh;
-  } else if (endpoint && /^https:\/\/[a-z0-9-]+\.users\.cfx\.re\/?$/i.test(endpoint)) {
-    const fresh = players(await getJson(`${endpoint.replace(/\/$/, "")}/players.json`));
-    if (fresh) list = fresh;
+async function fromAddress(host: string, port: number): Promise<ExternalData> {
+  return fromBase(await safeBase(host, port));
+}
+
+/** Pure: a server URL given by Cfx.re ("http://1.2.3.4:30120/", "https://x-y.users.cfx.re/") → host and port to check, or a proxy base. */
+export function parseCitizenUrl(raw: string | null): { proxy: string } | { host: string; port: number } | null {
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
   }
+  if (url.protocol === "https:" && /^[a-z0-9-]+\.users\.cfx\.re$/i.test(url.hostname)) return { proxy: `https://${url.hostname.toLowerCase()}` };
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  if (port < 1024) return null;
+  return { host: url.hostname.replace(/^\[|\]$/g, "").toLowerCase(), port };
+}
+
+/**
+ * Where a cfx.re/join code points, the way the FiveM client finds it: the "x-citizenfx-url" header of
+ * https://cfx.re/join/<code> (the redirect is not followed).
+ */
+async function resolveCfx(code: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://cfx.re/join/${encodeURIComponent(code)}`, { redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS), headers: { "User-Agent": "FiveraxScanner/1.0" } });
+    await res.body?.cancel().catch(() => {});
+    const target = parseCitizenUrl(res.headers.get("x-citizenfx-url"));
+    if (!target) return null;
+    return "proxy" in target ? target.proxy : await safeBase(target.host, target.port);
+  } catch (error) {
+    if (error instanceof ScanError) throw error;
+    return null;
+  }
+}
+
+/** The official server list (fallback when the server does not answer directly). */
+async function fromServerList(code: string): Promise<ExternalData | null> {
+  const data = record(record(await getJson(`https://servers-frontend.fivem.net/api/servers/single/${encodeURIComponent(code)}`)).Data);
+  if (!Object.keys(data).length) return null;
+  const v = vars(data.vars);
   return {
     hostname: typeof data.hostname === "string" ? data.hostname : null,
     projectName: v.sv_projectName ?? null,
     server: typeof data.server === "string" ? data.server : null,
     vars: v,
     resources: Array.isArray(data.resources) ? strings(data.resources) : null,
-    players: list,
+    // The list hides the players' endpoints: nothing to say about them from here.
+    players: null,
     clients: Number(data.clients) || null,
     maxClients: Number(data.sv_maxclients) || null
   };
+}
+
+/** A cfx.re/join code: resolved like the FiveM client does, then read on the server itself; the official list as a fallback. */
+async function fromCfx(code: string): Promise<ExternalData> {
+  const base = await resolveCfx(code);
+  if (base) {
+    try {
+      return await fromBase(base);
+    } catch (error) {
+      const listed = await fromServerList(code);
+      if (listed) return listed;
+      throw error;
+    }
+  }
+  const listed = await fromServerList(code);
+  if (!listed) throw new ScanError("unknown_server");
+  return listed;
 }
 
 type Row = {

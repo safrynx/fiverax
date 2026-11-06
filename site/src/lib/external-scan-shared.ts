@@ -141,6 +141,8 @@ export type ExternalData = {
   /** "FXServer-master SERVER v1.0.0.7290 win32" */
   server?: string | null;
   vars: Record<string, string>;
+  /** True when the server hides its convars (no info.json): the checks that read them are skipped. */
+  varsHidden?: boolean;
   /** Null: the server did not publish them. */
   resources: string[] | null;
   /** Null: players.json not reachable. Only endpoint / identifiers are read, and only to count. */
@@ -207,14 +209,15 @@ export function analyzeExternal(data: ExternalData, artifacts: Artifacts): Exter
   const build = Number(/v1\.0\.0\.(\d+)/.exec(version)?.[1]) || null;
   const platform = /linux/i.test(version) ? "linux" : /win32|windows/i.test(version) ? "win32" : null;
 
-  if (truthy(varOf(vars, "sv_scriptHookAllowed"))) push("scripthook", "sv_scriptHookAllowed vaut 1 (visible dans les infos publiques du serveur).");
+  const known = !data.varsHidden;
+  if (known && truthy(varOf(vars, "sv_scriptHookAllowed"))) push("scripthook", "sv_scriptHookAllowed vaut 1 (visible dans les infos publiques du serveur).");
   const pure = Number(varOf(vars, "sv_pureLevel") ?? 0) || 0;
-  if (pure < 1) push("pure_level", varOf(vars, "sv_pureLevel") === undefined ? "sv_pureLevel n'est pas défini (0 par défaut)." : `sv_pureLevel vaut ${pure}.`);
+  if (known && pure < 1) push("pure_level", varOf(vars, "sv_pureLevel") === undefined ? "sv_pureLevel n'est pas défini (0 par défaut)." : `sv_pureLevel vaut ${pure}.`);
   const onesyncVar = varOf(vars, "onesync_enabled") ?? varOf(vars, "onesync");
   const onesync = truthy(onesyncVar) || /^(legacy|on)$/i.test(onesyncVar ?? "");
-  if (!onesync) push("no_onesync", "onesync n'est pas activé.");
+  if (known && !onesync) push("no_onesync", "onesync n'est pas activé.");
   const gameBuild = varOf(vars, "sv_enforceGameBuild") ?? null;
-  if (!gameBuild) push("game_build", "");
+  if (known && !gameBuild) push("game_build", "");
   if (artifacts) {
     if (artifacts.critical && artifacts.build < artifacts.critical) push("critical_artifacts", `Build ${artifacts.build}, minimum sûr ${artifacts.critical}.`);
     else if (artifacts.recommended && artifacts.build < artifacts.recommended) push("old_artifacts", `Build ${artifacts.build}, recommandé ${artifacts.recommended}.`);
@@ -242,8 +245,13 @@ export function analyzeExternal(data: ExternalData, artifacts: Artifacts): Exter
 
   const framework = FRAMEWORKS.find(([name]) => lower.has(name))?.[1] ?? null;
   const name = cleanServerName(data.projectName || varOf(vars, "sv_projectName") || data.hostname || varOf(vars, "sv_hostname")) || "Serveur FiveM";
+  // Few checks per category from outside: without a cap, one critical setting (ScriptHook, vulnerable artifacts)
+  // would still read as "good". Any critical problem caps the score at 35, any high one at 70.
+  const scored = score(findings);
+  if (findings.some((f) => f.severity === "critical")) scored.score = Math.min(scored.score, 35);
+  else if (findings.some((f) => f.severity === "high")) scored.score = Math.min(scored.score, 70);
   return {
-    ...score(findings),
+    ...scored,
     facts: {
       name,
       build,
