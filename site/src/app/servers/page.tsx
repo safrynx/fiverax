@@ -13,7 +13,7 @@ import { Frame, PageHead } from "../shell";
 import AddServer, { GuildIcon } from "../new-server-form";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Mes serveurs" };
+export const metadata: Metadata = { title: "Mes serveurs", robots: { index: false, follow: false } };
 
 /** The servers the user can open, and their Discord servers they can add (self-service). */
 export default async function ServersPage({ searchParams }: { searchParams: Promise<{ error?: string; deleted?: string }> }) {

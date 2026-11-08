@@ -4,6 +4,7 @@ import { Wordmark } from "./brand";
 import { CtaLink } from "./annuaire/track";
 import "./annuaire/directory.css";
 import "./growth.css";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 /**
  * Header and footer of the public pages (directory, free scan, badge verification): the landing page's look, with
@@ -36,6 +37,7 @@ export default async function PublicFrame({ children }: { children: React.ReactN
             <Link href="/joueur">Espace joueur</Link>
             <Link href="/">Fiverax</Link>
             <CtaLink href="/login">Référencer mon serveur</CtaLink>
+            {LEGAL_LINKS.map((l) => <Link key={l.href} href={l.href}>{l.label}</Link>)}
           </nav>
           <span>© {new Date().getFullYear()} Fiverax · Annuaire et sécurité des serveurs FiveM</span>
         </footer>

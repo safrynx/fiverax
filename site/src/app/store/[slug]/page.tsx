@@ -30,6 +30,7 @@ export async function generateMetadata(props: Params): Promise<Metadata> {
   return {
     title: { absolute: title },
     description,
+    alternates: { canonical: `/store/${store.slug}` },
     robots: store.draft ? { index: false, follow: false } : undefined,
     openGraph: { title, description, type: "website", images: image ? [image] : undefined },
     twitter: { card: image ? "summary_large_image" : "summary", title, description },

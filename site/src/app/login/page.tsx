@@ -6,7 +6,7 @@ import { getIdentity } from "@/lib/auth";
 import { DiscordIcon, Mark, Wordmark } from "../brand";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Connexion" };
+export const metadata: Metadata = { title: "Connexion", robots: { index: false, follow: false } };
 
 const messages: Record<string, string> = {
   missing_config: "Configuration Discord incomplète côté serveur.",

@@ -12,6 +12,7 @@ import { publicProtectionOf } from "@/lib/protection";
 import { levelOf } from "@/lib/protection-shared";
 import { ensureCode } from "@/lib/referrals";
 import { publishedSlug } from "@/lib/portal-site";
+import { jsonLd, SITE_URL } from "@/lib/site";
 import Reviews from "./reviews";
 import VoteBox from "./vote";
 
@@ -68,22 +69,36 @@ export default async function ListingPage(props: Params) {
   const shield = protection && protection.level !== "none" ? levelOf(protection.level) : null;
   const lang = LANGUAGES.find((x) => x.key === l.language)?.label ?? l.language;
 
-  // Rich result for search engines (aggregate rating only when there are reviews).
-  const jsonLd = {
+  // Rich result for search engines (aggregate rating only when there are reviews) and the breadcrumb.
+  const url = `${SITE_URL}/annuaire/${l.slug}`;
+  const structuredData = {
     "@context": "https://schema.org",
-    "@type": "VideoGame",
-    name: l.name,
-    description: l.tagline || l.description.slice(0, 200),
-    gamePlatform: "FiveM (GTA V)",
-    image: l.bannerUrl || l.logoUrl || undefined,
-    url: `${(process.env.APP_URL || "").replace(/\/$/, "")}/annuaire/${l.slug}`,
-    ...(rating.count > 0 ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.average, reviewCount: rating.count, bestRating: 5, worstRating: 1 } } : {})
+    "@graph": [
+      {
+        "@type": "VideoGame",
+        "@id": `${url}#server`,
+        name: l.name,
+        description: l.tagline || l.description.slice(0, 200),
+        gamePlatform: "FiveM (GTA V)",
+        image: l.bannerUrl || l.logoUrl || undefined,
+        url,
+        ...(rating.count > 0 ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.average, reviewCount: rating.count, bestRating: 5, worstRating: 1 } } : {})
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Accueil", item: `${SITE_URL}/` },
+          { "@type": "ListItem", position: 2, name: "Annuaire", item: `${SITE_URL}/annuaire` },
+          { "@type": "ListItem", position: 3, name: l.name, item: url }
+        ]
+      }
+    ]
   };
 
   return (
     <>
       {l.published && <TrackView slug={l.slug} />}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={jsonLd(structuredData)} />
       {!l.published && <div className="banner" style={{ marginTop: 16 }}><b>Aperçu :</b> cette fiche n&apos;est pas encore publiée, seule ton équipe la voit.</div>}
 
       <div className="dir-show-banner" style={l.bannerUrl ? { backgroundImage: `url("${l.bannerUrl.replace(/"/g, "")}")` } : undefined} />

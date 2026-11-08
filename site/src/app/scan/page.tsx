@@ -3,15 +3,35 @@ import Link from "next/link";
 import { Bug, Cpu, EyeOff, FileWarning, Lock, Network, ScanSearch, ShieldCheck, Sparkles, Wrench } from "lucide-react";
 import { scanStats } from "@/lib/external-scan";
 import { CtaLink } from "../annuaire/track";
+import { jsonLd, OG_BASE, ORGANIZATION_ID, SITE_URL } from "@/lib/site";
 import ScanForm from "./scan-form";
+
+/** The scan counter only shows once it says something: a handful of scans reads as an unused tool. */
+const MIN_SCANS_SHOWN = 50;
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "@id": `${SITE_URL}/scan#app`,
+  name: "Scan de sécurité gratuit pour serveur FiveM",
+  url: `${SITE_URL}/scan`,
+  applicationCategory: "SecurityApplication",
+  operatingSystem: "Web",
+  inLanguage: "fr",
+  isAccessibleForFree: true,
+  description: "Colle ton lien cfx.re/join : score de sécurité, IP des joueurs exposées, ScriptHook, artifacts en retard, anticheat, OneSync. Gratuit et sans compte.",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
+  provider: { "@id": ORGANIZATION_ID }
+};
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: { absolute: "Scan de sécurité gratuit pour serveur FiveM · Fiverax" },
-  description: "Ton serveur FiveM est-il protégé ? Colle ton lien cfx.re/join : score de sécurité, IP des joueurs exposées, ScriptHook, artifacts en retard, anticheat, OneSync. Gratuit et sans compte.",
+  description: "Colle ton lien cfx.re/join : score de sécurité en 10 s, IP de joueurs exposées, ScriptHook, artifacts obsolètes, OneSync. Gratuit, sans compte.",
   alternates: { canonical: "/scan" },
-  openGraph: { title: "Scan de sécurité gratuit · serveurs FiveM", description: "Le score de sécurité de ton serveur FiveM en 10 secondes, sans rien installer.", type: "website" }
+  openGraph: { ...OG_BASE, url: "/scan", title: "Scan de sécurité gratuit · serveurs FiveM", description: "Le score de sécurité de ton serveur FiveM en 10 secondes, sans rien installer." },
+  twitter: { card: "summary_large_image" }
 };
 
 const quick = [
@@ -35,12 +55,13 @@ export default async function ScanPage() {
   const stats = await scanStats().catch(() => ({ scans: 0, average: null }));
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={jsonLd(structuredData)} />
       <section className="gx-hero">
         <div className="lp-chip rise"><b>Gratuit</b>Sans compte, sans rien installer</div>
         <h1 className="rise rise-1">Ton serveur FiveM est-il <span className="gold">vraiment protégé ?</span></h1>
         <p className="rise rise-2">Colle le lien de ton serveur : Fiverax lit ce que tout le monde peut voir de lui et te donne un score de sécurité en quelques secondes, avec ce qu&apos;il faut corriger en priorité.</p>
         <div className="rise rise-3" style={{ marginTop: 26, maxWidth: 680 }}><ScanForm /></div>
-        {stats.scans > 0 && (
+        {stats.scans >= MIN_SCANS_SHOWN && (
           <div className="dir-facts rise rise-4">
             <span><b>{stats.scans}</b>serveurs scannés ces 30 jours</span>
             {stats.average !== null && <span><b>{stats.average}/100</b>score moyen</span>}

@@ -2,15 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./marketing.css";
 import { UIProvider } from "./ui";
+import { OG_BASE, SITE_URL } from "@/lib/site";
 
 // Fonts are loaded by the visitor's browser (not downloaded at build time by next/font/google, which breaks
 // builds on hosts that cannot reach Google). globals.css falls back to these family names via var(--font-*).
 const FONTS_URL = "https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL || "http://localhost:3000"),
-  title: { default: "Fiverax · Dashboard FiveM", template: "%s · Fiverax" },
-  description: "Fiverax : le dashboard de tes serveurs FiveM. Staff, boutique Tebex avec Store Creator IA, anticheat, activité vocale et en jeu, bilan IA hebdomadaire."
+  metadataBase: new URL(SITE_URL),
+  title: { default: "Panel staff FiveM, boutique Tebex et anticheat · Fiverax", template: "%s · Fiverax" },
+  description: "Gère le staff de ton serveur FiveM depuis Discord : grades, avertissements, temps en vocal et en jeu, bilan IA chaque dimanche. Boutique Tebex IA et anticheat.",
+  openGraph: OG_BASE,
+  twitter: { card: "summary_large_image" }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

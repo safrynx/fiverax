@@ -31,6 +31,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   return {
     title: { absolute: `${data.design.title} · Espace joueurs · Fiverax` },
     description,
+    alternates: { canonical: `/joueur/${(await props.params).slug}` },
     robots: data.draft ? { index: false, follow: false } : undefined,
     openGraph: { title: data.design.title, description, images: data.design.banner ? [data.design.banner] : undefined }
   };

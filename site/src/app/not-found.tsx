@@ -11,6 +11,8 @@ export default function NotFound() {
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
           <Link href="/servers" className="btn primary">Mes serveurs</Link>
           <Link href="/" className="btn">Accueil</Link>
+          <Link href="/annuaire" className="btn">Annuaire</Link>
+          <Link href="/scan" className="btn">Scan gratuit</Link>
         </div>
       </div>
     </main>

@@ -24,6 +24,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: { absolute: `${title} · Fiverax` },
     description,
     alternates: { canonical: `/protection/${data.publicId}` },
+    // A server still being checked has nothing to show yet: keep that page out of search results.
+    robots: data.level === "none" ? { index: false, follow: true } : undefined,
     openGraph: { title, description, type: "website", images: [`/badge/${data.publicId}.svg`] }
   };
 }

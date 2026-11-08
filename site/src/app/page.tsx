@@ -1,12 +1,42 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Activity, ArrowRight, BadgeCheck, Blocks, Gift, ScanSearch, Building2, Code2, CreditCard, Gamepad2, KeyRound, Mic, Radio, ScrollText, ShieldAlert, ShoppingBag, Smartphone, Sparkles, TrendingUp, Users, WandSparkles } from "lucide-react";
 import { PERMISSIONS } from "@/lib/permissions";
 import { getIdentity } from "@/lib/auth";
 import { Mark, Wordmark } from "./brand";
 import ScanForm from "./scan/scan-form";
+import { LEGAL_LINKS } from "@/lib/legal";
+import { jsonLd, OG_BASE, ORGANIZATION_ID, SITE_DESCRIPTION, SITE_URL, WEBSITE_ID } from "@/lib/site";
 import "./growth.css";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+  openGraph: { ...OG_BASE, url: "/", title: "Fiverax · Panel staff FiveM, boutique Tebex et anticheat", description: "Le panel de ton serveur FiveM, piloté depuis Discord : staff, boutique Tebex, anticheat et scan de sécurité." }
+};
+
+/** Who Fiverax is and what it is, for search engines and AI answers. No price or rating: none is shown on the page. */
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Organization", "@id": ORGANIZATION_ID, name: "Fiverax", url: `${SITE_URL}/`, logo: `${SITE_URL}/logo.png`, description: SITE_DESCRIPTION },
+    { "@type": "WebSite", "@id": WEBSITE_ID, url: `${SITE_URL}/`, name: "Fiverax", inLanguage: "fr", publisher: { "@id": ORGANIZATION_ID } },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#app`,
+      name: "Fiverax",
+      url: `${SITE_URL}/`,
+      applicationCategory: "BusinessApplication",
+      applicationSubCategory: "Gestion de serveur FiveM",
+      operatingSystem: "Web",
+      inLanguage: "fr",
+      description: SITE_DESCRIPTION,
+      featureList: ["Gestion du staff et des grades Discord", "Avertissements et logs", "Temps en vocal et en jeu", "Bilan IA hebdomadaire", "Boutique Tebex avec Store Creator IA", "Anticheat", "Scan de sécurité"],
+      publisher: { "@id": ORGANIZATION_ID }
+    }
+  ]
+};
 
 const features = [
   { icon: Users, title: "Gestion du staff", text: "Up, down, derank, recrutement : chaque changement de grade est appliqué directement sur les rôles Discord." },
@@ -40,7 +70,7 @@ const storeDemo = [
 
 const faq = [
   { q: "Qui peut ajouter un serveur ?", a: "Toute personne qui a la permission « Gérer le serveur » (ou qui est administrateur) sur le serveur Discord. Tu deviens propriétaire de ton espace Fiverax et tu ajoutes ensuite ton équipe." },
-  { q: "Faut-il installer quelque chose sur mon serveur FiveM ?", a: "Seulement si tu veux suivre le temps de jeu : une ressource légère, à déposer dans tes resources avec le token propre à ton serveur. Tout le reste passe par Discord." },
+  { q: "Faut-il installer quelque chose sur mon serveur FiveM ?", a: "Seulement pour le temps de jeu, l'anticheat et le scan complet : une ressource légère, à déposer dans tes resources avec le token propre à ton serveur. Le staff passe uniquement par Discord, la boutique par Tebex." },
   { q: "Je gère plusieurs serveurs, c'est possible ?", a: "Oui. Un seul compte, un seul bot, et tu passes d'un serveur à l'autre depuis le panel. Les données, les rôles et les accès de chaque serveur restent séparés." },
   { q: "Que se passe-t-il si quelqu'un perd son rôle sur Discord ?", a: "Ses accès sont recalculés à chaque requête à partir de ses rôles Discord : un rôle retiré sur Discord, et l'accès au panel disparaît." },
   { q: "Comment marche la boutique en ligne ?", a: "Tu relies ton webstore Tebex, puis tu crées ta page avec le Store Creator : avec des blocs, ou en la décrivant à l'IA. Les joueurs paient chez Tebex, l'argent arrive directement sur ton compte Tebex et les achats sont livrés en jeu par la ressource Tebex officielle." },
@@ -62,6 +92,7 @@ export default async function LandingPage() {
 
   return (
     <div className="lp">
+      <script type="application/ld+json" dangerouslySetInnerHTML={jsonLd(structuredData)} />
       <header className="lp-nav">
         <div className="lp-wrap">
           <Link href="/" aria-label="Fiverax"><Wordmark size={30} /></Link>
@@ -82,9 +113,9 @@ export default async function LandingPage() {
         <section className="lp-hero">
           <div>
             <Link href="/scan" className="lp-chip rise"><b>Nouveau</b>Scan de sécurité gratuit de ton serveur FiveM, sans compte</Link>
-            <h1 className="rise rise-1">Ton serveur FiveM,<br /><span className="gold">piloté d&apos;un seul endroit.</span></h1>
+            <h1 className="rise rise-1">Ton panel staff FiveM, <br /><span className="gold">piloté d&apos;un seul endroit.</span></h1>
             <p className="lead rise rise-2">
-              Fiverax relie ton Discord et ton serveur FiveM pour gérer ton staff : grades, avertissements, activité en vocal et en jeu, bilan de la semaine. Sans tableur, sans commandes à retenir.
+              Fiverax est le panel de gestion des serveurs FiveM : il relie ton Discord et ton serveur pour gérer ton staff (grades, avertissements, activité en vocal et en jeu, bilan de la semaine), ta boutique Tebex et ton anticheat. Sans tableur, sans commandes à retenir.
             </p>
             <div className="lp-cta rise rise-3">
               <Link href={cta.href} className="btn primary shine">{cta.label}<ArrowRight size={16} /></Link>
@@ -109,7 +140,7 @@ export default async function LandingPage() {
         <section id="securite" className="lp-sect">
           <header>
             <div className="eyebrow">Sécurité</div>
-            <h2>Ton serveur est-il <span className="gold">vraiment protégé ?</span></h2>
+            <h2>Anticheat et scan de sécurité FiveM : ton serveur est-il <span className="gold">vraiment protégé ?</span></h2>
             <p>Colle le lien de ton serveur : score de sécurité en 10 secondes, sans compte. Ensuite, Fiverax analyse le code de chaque ressource, te dit quoi corriger et te donne les ressources pour le faire.</p>
           </header>
           <div style={{ maxWidth: 680 }}><ScanForm /></div>
@@ -140,7 +171,7 @@ export default async function LandingPage() {
         <section id="boutique" className="lp-sect lp-store">
           <header>
             <div className="eyebrow">Store Creator</div>
-            <h2>Une boutique qui donne envie d&apos;acheter. <span className="gold">En une phrase.</span></h2>
+            <h2>Ta boutique Tebex FiveM, créée par l&apos;IA. <span className="gold">En une phrase.</span></h2>
             <p>Décris ta boutique à l&apos;IA, ou construis-la bloc par bloc comme un pro du design. Elle est branchée sur Tebex : catalogue, paiement et livraison en jeu fonctionnent dès la publication.</p>
           </header>
 
@@ -168,7 +199,7 @@ export default async function LandingPage() {
             </div>
 
             <div className="lp-store-demo" aria-hidden="true">
-              <div className="bar"><i /><i /><i /><span>fiverax · /store/ton-serveur</span></div>
+              <div className="bar"><i /><i /><i /><span>fiverax · /store/ton-serveur · exemple</span></div>
               <div className="lp-sd">
                 <div className="lp-sd-nav"><b><span>N</span>Neon City RP</b><em>🛒 2</em></div>
                 <div className="lp-sd-hero">
@@ -206,7 +237,7 @@ export default async function LandingPage() {
             <p>L&apos;accueil de chaque serveur résume les 7 derniers jours : qui est actif, qui est en vocal, qui a des avertissements.</p>
           </header>
           <div className="lp-window">
-            <div className="bar"><i /><i /><i /><span>fiverax · Mon serveur RP</span></div>
+            <div className="bar"><i /><i /><i /><span>fiverax · Mon serveur RP · exemple</span></div>
             <div className="body">
               <aside>
                 <Wordmark size={22} />
@@ -235,7 +266,7 @@ export default async function LandingPage() {
         <section id="fonctionnalites" className="lp-sect">
           <header>
             <div className="eyebrow">Fonctionnalités</div>
-            <h2>Tout ce qu&apos;il faut pour tenir un staff.</h2>
+            <h2>Gestion du staff FiveM : tout ce qu&apos;il faut pour tenir une équipe.</h2>
             <p>Discord reste la source de vérité : Fiverax lit les rôles, les applique, et garde l&apos;historique.</p>
           </header>
           <div className="lp-grid">
@@ -252,7 +283,7 @@ export default async function LandingPage() {
         <section id="modules" className="lp-sect">
           <header>
             <div className="eyebrow">Modules</div>
-            <h2>Le staff d&apos;abord. Le reste arrive.</h2>
+            <h2>Staff, boutique Tebex, anticheat, Studio IA : un seul panel.</h2>
             <p>Fiverax grandit avec ton serveur : de nouveaux modules s&apos;ajoutent au même panel, avec les mêmes accès.</p>
           </header>
           <div className="lp-mods">
@@ -307,6 +338,7 @@ export default async function LandingPage() {
             <Link href="/scan">Scan de sécurité gratuit</Link>
             <Link href="/annuaire">Annuaire des serveurs</Link>
             <Link href="/login">Connexion</Link>
+            {LEGAL_LINKS.map((l) => <Link key={l.href} href={l.href}>{l.label}</Link>)}
           </nav>
           <span>© {new Date().getFullYear()} Fiverax</span>
         </footer>

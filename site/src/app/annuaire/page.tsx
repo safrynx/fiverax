@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
-import { listDirectory } from "@/lib/directory";
+import { listDirectory, sitemapListings } from "@/lib/directory";
+import { jsonLd, MIN_LISTINGS_TO_INDEX, OG_BASE, SITE_URL, WEBSITE_ID } from "@/lib/site";
 import { DIRECTORY_SORTS, DIRECTORY_TAGS, LANGUAGES, type DirectorySort } from "@/lib/directory-shared";
 import { FRAMEWORKS } from "@/lib/studio-shared";
 import { ServerCard } from "./parts";
@@ -9,12 +10,18 @@ import { CtaLink } from "./track";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: { absolute: "Annuaire des serveurs FiveM RP · Fiverax" },
-  description: "Trouve ton prochain serveur FiveM : joueurs en direct, avis de vrais joueurs, whitelist ou accès libre, ESX, QBCore, Qbox. Tous les serveurs gérés avec Fiverax.",
-  alternates: { canonical: "/annuaire" },
-  openGraph: { title: "Annuaire des serveurs FiveM · Fiverax", description: "Joueurs en direct et avis vérifiés des serveurs FiveM RP.", type: "website" }
-};
+/** Filters and sorts all point to /annuaire; the page itself stays out of search results until it lists enough servers. */
+export async function generateMetadata(): Promise<Metadata> {
+  const published = (await sitemapListings().catch(() => [])).length;
+  return {
+    title: { absolute: "Annuaire des serveurs FiveM RP français · Joueurs en direct | Fiverax" },
+    description: "Serveurs FiveM RP français avec joueurs en direct : whitelist ou accès libre, ESX, QBCore, Qbox. Filtre par style de RP et trouve ton serveur.",
+    alternates: { canonical: "/annuaire" },
+    robots: published >= MIN_LISTINGS_TO_INDEX ? undefined : { index: false, follow: true },
+    openGraph: { ...OG_BASE, url: "/annuaire", title: "Annuaire des serveurs FiveM · Fiverax", description: "Les serveurs FiveM RP avec leurs joueurs en direct et les avis de leurs joueurs." },
+    twitter: { card: "summary_large_image" }
+  };
+}
 
 type Search = { q?: string; tag?: string; fw?: string; lang?: string; online?: string; safe?: string; sort?: string };
 const SORT_LABEL: Record<DirectorySort, string> = { relevance: "Pertinence", players: "Joueurs en ligne", votes: "Plus votés ce mois", rating: "Mieux notés", recent: "Nouveaux" };
@@ -37,8 +44,24 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
     return qs ? `/annuaire?${qs}` : "/annuaire";
   };
 
+  const structuredData = !filtered && cards.length > 0 ? {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "@id": `${SITE_URL}/annuaire#page`,
+    url: `${SITE_URL}/annuaire`,
+    name: "Annuaire des serveurs FiveM RP",
+    inLanguage: "fr",
+    isPartOf: { "@id": WEBSITE_ID },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: cards.length,
+      itemListElement: cards.map((c, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_URL}/annuaire/${c.slug}`, name: c.name }))
+    }
+  } : null;
+
   return (
     <>
+      {structuredData && <script type="application/ld+json" dangerouslySetInnerHTML={jsonLd(structuredData)} />}
       <section className="dir-hero">
         <span className="lp-chip rise"><b>Annuaire</b>Les serveurs FiveM qui tournent avec Fiverax</span>
         <h1 className="rise rise-1">Trouve ton prochain <span className="gold">serveur RP</span>.</h1>
