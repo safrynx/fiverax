@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { handleBotRequest } from "@/lib/bot-guard";
 import { getBackupData, lastBackupAt, storeBackup } from "@/lib/security-live";
-import { getServerByGuild } from "@/lib/servers";
+import { activeServerByGuild } from "@/lib/servers";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,7 @@ const schema = z.discriminatedUnion("op", [
 /** POST /api/bot/backup — store a backup of a guild's roles and channels, read one back (restore), or ask its date. */
 export function POST(req: NextRequest) {
   return handleBotRequest(req, schema, async (body) => {
-    const server = await getServerByGuild(body.guildId);
+    const server = await activeServerByGuild(body.guildId);
     if (!server) return { ignored: "unknown_guild" };
     if (body.op === "store") return { id: await storeBackup(server.id, body.reason, body.data) };
     if (body.op === "last") return { at: await lastBackupAt(server.id) };

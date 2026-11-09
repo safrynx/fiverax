@@ -54,6 +54,11 @@ export const KEY_KINDS: Record<string, string> = {
 export type NetworkRecord = {
   banId: number;
   serverId: string;
+  /**
+   * Opaque key of the account that registered that server. Blocking counts distinct operators, not servers: one
+   * person registering several servers (and feeding them fake players through their own agents) counts once.
+   */
+  operator?: string;
   serverName: string;
   serverIcon: string | null;
   playerName: string;
@@ -75,7 +80,7 @@ export type Verdict = { flagged: boolean; blocked: boolean; blockingServers: num
 
 /** Pure: what the network says about a player for a server with these settings. */
 export function networkVerdict(rep: Reputation, settings: NetworkSettings): Verdict {
-  const counted = new Set(rep.records.filter((r) => settings.blockCategories.includes(r.category)).map((r) => r.serverId));
+  const counted = new Set(rep.records.filter((r) => settings.blockCategories.includes(r.category)).map((r) => r.operator ?? r.serverId));
   const blockingServers = counted.size;
   const blocked = settings.mode === "block" && blockingServers >= settings.minServers;
   const cats = [...new Set(rep.records.filter((r) => settings.blockCategories.includes(r.category)).map((r) => categoryLabel(r.category)))];

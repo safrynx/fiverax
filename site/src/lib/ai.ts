@@ -1,6 +1,9 @@
+import { consumeAi, type AiScope } from "./ai-quota";
+
 /**
  * Chat call to the OpenAI-compatible API of the site (AI_BASE_URL / AI_API_KEY) asking for a JSON answer.
- * Errors are codes the panel translates: ai_http_<status>, ai_truncated, ai_rate_limited.
+ * Errors are codes the panel translates: ai_http_<status>, ai_truncated, ai_rate_limited, ai_disabled, ai_quota_exceeded.
+ * `quota` is required: every call counts against the daily quotas of its server and of the account that asked (ai-quota.ts).
  */
 
 export function aiConfigured(): boolean {
@@ -12,8 +15,9 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function chatJson(
   system: string,
   user: string,
-  opts: { model?: string; maxTokens?: number; temperature?: number; timeoutMs?: number } = {}
+  opts: { quota: AiScope; model?: string; maxTokens?: number; temperature?: number; timeoutMs?: number }
 ): Promise<string> {
+  await consumeAi(opts.quota);
   const base = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
   const model = opts.model || process.env.AI_MODEL || "llama-3.3-70b-versatile";
   for (let attempt = 0; attempt < 2; attempt++) {

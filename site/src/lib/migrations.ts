@@ -1077,6 +1077,149 @@ const migrations: { name: string; sql: string }[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_portal_winners_reward ON portal_giveaway_winners(server_id, reward_status)
     `
+  },
+  {
+    // Discord security audit: what the bot saw of a guild's setup (permissions, bots, @everyone, 2FA, verification),
+    // scored by lib/discord-audit-shared.ts. The 10 latest of each server are kept.
+    name: "028_discord_audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS discord_audits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        critical INTEGER NOT NULL DEFAULT 0,
+        high INTEGER NOT NULL DEFAULT 0,
+        medium INTEGER NOT NULL DEFAULT 0,
+        snapshot_json TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_discord_audits ON discord_audits(server_id, id)
+    `
+  },
+  {
+    // Platform administration (/admin): revocable sessions (logout really ends a session, an admin can end them all),
+    // every account that logged in (platform bans), suspended servers, platform-wide settings (maintenance,
+    // registrations, announcement, AI quotas), AI usage per day, a generic rate limiter and the log of admin actions.
+    // Existing accounts are backfilled from user_guilds (written at each login since 014).
+    name: "029_platform_admin",
+    sql: `
+      ALTER TABLE servers ADD COLUMN suspended_at TEXT;
+      ALTER TABLE servers ADD COLUMN suspended_reason TEXT;
+      ALTER TABLE servers ADD COLUMN suspended_by TEXT;
+      CREATE TABLE IF NOT EXISTS platform_users (
+        discord_id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        avatar_url TEXT,
+        first_login_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL,
+        login_count INTEGER NOT NULL DEFAULT 0,
+        banned_at TEXT,
+        banned_by TEXT,
+        ban_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_platform_users_last ON platform_users(last_login_at);
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        id TEXT PRIMARY KEY,
+        discord_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        revoked_at TEXT,
+        revoked_reason TEXT,
+        ip_hash TEXT,
+        user_agent TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(discord_id, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS admin_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        actor_discord_id TEXT NOT NULL,
+        actor_name TEXT,
+        action TEXT NOT NULL,
+        target_kind TEXT,
+        target_id TEXT,
+        details TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_admin_audit_target ON admin_audit(target_kind, target_id);
+      CREATE TABLE IF NOT EXISTS ai_usage (
+        scope TEXT NOT NULL,
+        day TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        refused INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (scope, day, kind)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage(day);
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        key TEXT PRIMARY KEY,
+        window_start INTEGER NOT NULL,
+        count INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO platform_users (discord_id, username, first_login_at, last_login_at, login_count)
+        SELECT g.discord_id,
+               COALESCE((SELECT s.username FROM staff_members s WHERE s.discord_id = g.discord_id AND s.username <> '' ORDER BY s.updated_at DESC LIMIT 1), g.discord_id),
+               MIN(g.updated_at), MAX(g.updated_at), 0
+        FROM user_guilds g GROUP BY g.discord_id
+    `
+  },
+  {
+    // Private beta: partner accounts (chosen in /admin), their access requests, and the bug reports / ideas sent from
+    // the panel during the beta.
+    name: "030_beta_feedback",
+    sql: `
+      ALTER TABLE platform_users ADD COLUMN partner_at TEXT;
+      ALTER TABLE platform_users ADD COLUMN partner_by TEXT;
+      CREATE TABLE IF NOT EXISTS beta_requests (
+        discord_id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        server_name TEXT NOT NULL,
+        link TEXT,
+        players TEXT,
+        message TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decided_at TEXT,
+        decided_by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_beta_requests_status ON beta_requests(status, updated_at);
+      CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        discord_id TEXT NOT NULL,
+        username TEXT,
+        server_id TEXT,
+        page TEXT,
+        kind TEXT NOT NULL DEFAULT 'bug',
+        message TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new',
+        admin_note TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, id)
+    `
+  },
+  {
+    // The shared bot's look on one server's Discord (name, avatar, banner, bio), as last applied from the panel.
+    // Discord keeps the images; only their hashes and the texts are stored here.
+    name: "031_bot_profiles",
+    sql: `
+      CREATE TABLE IF NOT EXISTS bot_profiles (
+        server_id TEXT PRIMARY KEY,
+        nick TEXT,
+        bio TEXT,
+        avatar_hash TEXT,
+        banner_hash TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+      )
+    `
   }
 ];
 

@@ -1,0 +1,44 @@
+/* Platform administration (/admin). Builds on globals.css (panel, strip, tbl, tag, banner). */
+
+.adm-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; margin: 18px 0 30px; }
+.adm-kv > div { padding: 12px 16px; background: linear-gradient(180deg, #16120b, #100c08); min-width: 0; }
+.adm-kv small { display: block; color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+.adm-kv b { font-weight: 600; overflow-wrap: anywhere; }
+
+.adm-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.adm-who > div { min-width: 0; }
+.adm-who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adm-who small { color: var(--muted); font-size: 12px; }
+
+.adm-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.adm-more { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.strip.adm-strip { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.adm-list { display: grid; gap: 0; }
+.adm-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.adm-list > div:last-child { border-bottom: 0; }
+
+.adm-card { border: 1px solid var(--line-2); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; background: rgba(0, 0, 0, 0.18); }
+.adm-card header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; margin-bottom: 8px; }
+.adm-card p { margin: 6px 0; overflow-wrap: anywhere; }
+
+.adm-check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.adm-check:last-child { border-bottom: 0; }
+.adm-check[data-ok="true"] svg { color: var(--ok); }
+.adm-check[data-ok="false"][data-level="error"] svg { color: var(--bad); }
+.adm-check[data-ok="false"][data-level="warn"] svg { color: var(--warn); }
+.adm-check[data-ok="false"][data-level="info"] svg { color: var(--muted); }
+.adm-check p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+.adm-form { display: grid; gap: 26px; max-width: 760px; }
+.adm-form fieldset { border: 1px solid var(--line-2); border-radius: 16px; padding: 18px 20px 20px; margin: 0; }
+.adm-form legend { padding: 0 8px; font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.adm-form .adm-row { display: grid; gap: 6px; margin-top: 14px; }
+.adm-form .adm-row label { font-size: 13px; font-weight: 600; }
+.adm-form .adm-row small { color: var(--muted); font-size: 12px; }
+.adm-form .adm-toggle { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; cursor: pointer; }
+.adm-form .adm-toggle input { margin-top: 3px; }
+.adm-form .adm-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+
+.tbl.adm-tbl { min-width: 860px; }
+.tbl.adm-tbl a.adm-row-link { color: inherit; text-decoration: none; }
+.tbl.adm-tbl a.adm-row-link:hover b { color: var(--accent-soft); }

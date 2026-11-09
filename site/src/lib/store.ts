@@ -248,7 +248,7 @@ export async function getPublicStore(slug: string, opts: { draft?: boolean } = {
   const design = opts.draft ? parseDesign(row.draft_json) : parseDesign(row.published_json);
   if (!design) return null;
   const server = await getServer(row.server_id);
-  if (!server) return null;
+  if (!server || server.suspended) return null;
   const data = await loadStoreData(server.id);
   return { server, slug: row.slug, design: designFor(design, data), data, draft: Boolean(opts.draft) };
 }
@@ -312,7 +312,10 @@ export async function generateStoreDesign(server: Server, actor: Actor, instruct
   const user = `Serveur : « ${server.name} ».\nCatalogue Tebex :\n${catalogForAI(data)}\n\nPage actuelle :\n${JSON.stringify(site.draft)}\n\nDemande : ${instruction}`;
   let reply: string;
   try {
-    reply = await chatJson(aiSystem(), user, { model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000, temperature: 0.6 });
+    reply = await chatJson(aiSystem(), user, {
+      quota: { serverId: server.id, userId: actor.discordId, kind: "store" },
+      model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000, temperature: 0.6
+    });
   } catch (error) {
     throw new StoreError(error instanceof Error ? error.message : "ai_error");
   }

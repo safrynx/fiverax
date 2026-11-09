@@ -1,5 +1,6 @@
 import { requireOwnerPage } from "@/lib/auth";
 import { getLiveState } from "@/lib/agent";
+import { AGENT_VERSION } from "@/lib/agent-files.generated";
 import { isPlatformOwner } from "@/lib/config";
 import { botInviteUrl } from "@/lib/discord";
 import { LEGACY_SERVER_ID, listManageableGuilds, serverReviewHour, serverTimeZone } from "@/lib/servers";
@@ -22,7 +23,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ serve
 
   return (
     <Shell user={user} server={server} active="settings">
-      <PageHead kicker={server.name} title="Configuration">Identité du serveur, serveur Discord suivi par le bot, fuseau horaire et agent FiveM.</PageHead>
+      <PageHead kicker={server.name} title="Configuration" help="/guides/demarrer">Identité du serveur, serveur Discord suivi par le bot, fuseau horaire et agent FiveM.</PageHead>
       <SetupChecklist server={server} always />
       <ServerSettings
         name={server.name}
@@ -36,6 +37,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ serve
         hasFivemToken={server.hasFivemToken}
         appUrl={appUrl}
         agent={{ linked: live.linked, online: live.online, version: live.agentVersion }}
+        latestAgent={AGENT_VERSION}
         inviteUrl={botInviteUrl(server.guildId)}
       />
       {(server.id !== LEGACY_SERVER_ID || platformOwner) && <DeleteServer name={server.name} />}

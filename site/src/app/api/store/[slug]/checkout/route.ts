@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { clientIp } from "@/lib/client-ip";
 import { finishCheckout, startCheckout } from "@/lib/store";
 import { isValidStoreSlug } from "@/lib/store-design";
 
@@ -32,17 +33,12 @@ function limited(key: string, max: number, now = Date.now()): boolean {
   return list.length > max;
 }
 
-function clientIp(req: NextRequest): string | null {
-  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || req.headers.get("x-real-ip") || "";
-  return /^[0-9a-f.:]{3,45}$/i.test(ip) ? ip : null;
-}
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   if (!isValidStoreSlug(slug)) return NextResponse.json({ error: "store_unavailable" }, { status: 404 });
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "validation" }, { status: 400 });
-  const ip = clientIp(req);
+  const ip = clientIp(req.headers);
   const who = ip ?? "unknown";
   if (limited(`all:${who}`, 40) || (parsed.data.step === "start" && limited(`start:${who}`, 12))) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });

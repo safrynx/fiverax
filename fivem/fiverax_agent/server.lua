@@ -20,7 +20,7 @@
 --   add_ace group.admin fiverax.staff allow           # optional: receive the /report of the players in game (blackbox.lua)
 --   ensure fiverax_agent
 
-local VERSION = '3.7.0'
+local VERSION = '3.8.0'
 local RESOURCE = GetCurrentResourceName()
 
 -- The 1.x convars (gtasun_staff_api_url pointed at /api/fivem) still work.

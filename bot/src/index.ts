@@ -4,6 +4,7 @@ import { setupActions } from "./actions";
 import { onMessage } from "./messages";
 import { siteConfig, sitePost } from "./api";
 import { playtimeSources, readPlaytimeTotals, type PlaytimeSource } from "./playtime";
+import { applyPresence, type PresenceSetting } from "./presence";
 
 /**
  * One bot for every server of the panel. It watches the Discord guilds registered on the site
@@ -133,9 +134,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   const heartbeat = async () => {
     const guilds = activeGuilds().map((g) => ({ guildId: g.id, topRolePosition: g.members.me?.roles.highest.position ?? null }));
-    // The answer carries the anti-raid settings: a change made on the panel applies within a minute.
-    const result = await sitePost<{ antiraid?: Record<string, unknown> }>("heartbeat", { guilds }, 1);
+    // The answer carries the anti-raid settings and the bot's status: a change made on the panel applies within a minute.
+    const result = await sitePost<{ antiraid?: Record<string, unknown>; presence?: PresenceSetting }>("heartbeat", { guilds }, 1);
     for (const [guildId, config] of Object.entries(result?.antiraid ?? {})) setAntiraidConfig(guildId, config);
+    applyPresence(readyClient, result?.presence, guilds.length);
   };
   void heartbeat();
   setInterval(() => void heartbeat(), HEARTBEAT_MS);

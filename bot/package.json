@@ -8,7 +8,7 @@
     "start": "node index.js",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/api.test.ts tests/playtime.test.ts tests/antiraid.test.ts"
+    "test": "tsx --test tests/api.test.ts tests/playtime.test.ts tests/antiraid.test.ts tests/raid-detect.test.ts"
   },
   "engines": {
     "node": ">=20.6"

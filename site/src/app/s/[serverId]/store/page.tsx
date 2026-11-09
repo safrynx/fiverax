@@ -17,7 +17,7 @@ export default async function StoreCreatorPage({ params }: { params: Promise<{ s
 
   return (
     <Shell user={user} server={server} active="store_creator">
-      <PageHead kicker={server.name} title="Store Creator">
+      <PageHead kicker={server.name} title="Store Creator" help="/guides/boutique-tebex">
         Ta boutique en ligne, branchée sur Tebex : construis-la avec des blocs ou décris-la à l&apos;IA. Catalogue, prix, objectifs et joueurs en ligne sont toujours à jour.
       </PageHead>
       {!settings.publicToken && (

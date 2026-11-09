@@ -142,7 +142,7 @@ export async function publicProtection(publicId: string, opts: { countView?: boo
   const row = await db.get<{ server_id: string; enabled: number }>("SELECT server_id, enabled FROM protection_badges WHERE public_id = ?", [publicId]);
   if (!row?.enabled) return null;
   const server = await getServer(row.server_id);
-  if (!server) return null;
+  if (!server || server.suspended) return null;
   const [status, listing] = await Promise.all([
     protectionStatus(server.id, now),
     db.get<{ slug: string; data_json: string }>("SELECT slug, data_json FROM directory_listings WHERE server_id = ? AND published = 1", [server.id])
@@ -214,7 +214,7 @@ export async function generatePlan(serverId: string, actor: Actor, now = new Dat
   ].join("\n\n");
   let plan: ProtectionPlan | null;
   try {
-    plan = parsePlan(await chatJson(PLAN_PROMPT, user, { maxTokens: 2500, temperature: 0.25, timeoutMs: 55_000 }), now);
+    plan = parsePlan(await chatJson(PLAN_PROMPT, user, { quota: { serverId, userId: actor.discordId, kind: "plan" }, maxTokens: 2500, temperature: 0.25, timeoutMs: 55_000 }), now);
   } catch (error) {
     throw new ProtectionError(error instanceof Error ? error.message : "ai_error");
   }

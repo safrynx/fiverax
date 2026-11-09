@@ -59,6 +59,7 @@ export default async function StaffPage({ params, searchParams }: { params: Prom
       <PageHead
         kicker="Équipe"
         title="Staff"
+        help="/guides/staff"
         actions={
           <>
             {can(user, "recruit") && <RecruitButton grades={recruitGrades} />}

@@ -37,7 +37,7 @@ export default async function NetworkPage({ params, searchParams }: { params: Pr
 
   return (
     <Shell user={user} server={server} active="network">
-      <PageHead kicker="Réseau Fiverax" title="Bans partagés">
+      <PageHead kicker="Réseau Fiverax" title="Bans partagés" help="/guides/anticheat">
         Les serveurs Fiverax mettent leurs bans en commun : un cheater banni sur un serveur est reconnu sur tous les autres, même sous un autre pseudo,
         par sa license Rockstar, ses comptes liés ou son PC. Les identifiants ne quittent jamais ton serveur : seule une empreinte (hash) est comparée.
       </PageHead>

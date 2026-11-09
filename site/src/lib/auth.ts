@@ -2,8 +2,10 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { db, stmt } from "./db";
-import { decodeSession, sessionCookieName } from "./session";
+import { decodeSession, isSessionActive, sessionCookieName } from "./session";
 import { hasPanelAccessIn, isPlatformOwner, isServerOwnerIn, loadConfig, permissionsIn, resolveGradeIn } from "./config";
+import { betaAllows } from "./beta";
+import { getPlatformSettings } from "./platform";
 import { getServer, listServers, type Server } from "./servers";
 import type { Permission } from "./permissions";
 import type { Identity, SessionUser } from "./types";
@@ -21,7 +23,8 @@ import type { Identity, SessionUser } from "./types";
 export async function getIdentity(): Promise<Identity | null> {
   const store = await cookies();
   const payload = decodeSession(store.get(sessionCookieName)?.value);
-  if (!payload) return null;
+  // The signature proves who the cookie claims to be; the session row says it is still open (logout, ban, admin).
+  if (!payload || !(await isSessionActive(payload))) return null;
   return { discordId: payload.discordId, username: payload.username, avatarUrl: payload.avatarUrl };
 }
 
@@ -107,12 +110,23 @@ export function can(user: SessionUser, permission: Permission): boolean {
 
 type ApiGuard = { user: SessionUser; server: Server } | { error: NextResponse };
 
-/** API guard: a user with access to the server, or a ready-made 401/403/404 response. */
+/** The panel is in maintenance for this account (platform admins always get in): its message, else null. */
+async function maintenanceFor(identity: Identity): Promise<{ message: string } | null> {
+  if (isPlatformOwner(identity.discordId)) return null;
+  const { maintenance } = await getPlatformSettings();
+  return maintenance.active ? { message: maintenance.message } : null;
+}
+
+/** API guard: a user with access to the server, or a ready-made 401/403/404/503 response. */
 export async function requireStaffApi(serverId: string): Promise<ApiGuard> {
   const identity = await getIdentity();
   if (!identity) return { error: NextResponse.json({ error: "unauthenticated" }, { status: 401 }) };
+  const maintenance = await maintenanceFor(identity);
+  if (maintenance) return { error: NextResponse.json({ error: "maintenance", message: maintenance.message || null }, { status: 503 }) };
   const server = await getServer(serverId);
   if (!server) return { error: NextResponse.json({ error: "unknown_server" }, { status: 404 }) };
+  if (server.suspended && !isPlatformOwner(identity.discordId)) return { error: NextResponse.json({ error: "server_suspended" }, { status: 403 }) };
+  if (!(await betaAllows(identity.discordId, server.id))) return { error: NextResponse.json({ error: "beta_closed" }, { status: 403 }) };
   const user = await getSessionUser(serverId);
   if (!user) return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   return { user, server };
@@ -144,18 +158,38 @@ export async function requirePlatformOwnerApi(): Promise<{ identity: Identity } 
   return { identity };
 }
 
-/** Page guard: logged in (any server, or none yet). */
+/** API guard for the panel itself outside a server (creating a server): logged in, panel not in maintenance. */
+export async function requireIdentityApi(): Promise<{ identity: Identity } | { error: NextResponse }> {
+  const identity = await getIdentity();
+  if (!identity) return { error: NextResponse.json({ error: "unauthenticated" }, { status: 401 }) };
+  const maintenance = await maintenanceFor(identity);
+  if (maintenance) return { error: NextResponse.json({ error: "maintenance", message: maintenance.message || null }, { status: 503 }) };
+  return { identity };
+}
+
+/** Page guard: logged in (any server, or none yet), panel not in maintenance. */
 export async function requireIdentityPage(): Promise<Identity> {
   const identity = await getIdentity();
   if (!identity) redirect("/login");
+  if (await maintenanceFor(identity)) redirect("/maintenance");
   return identity;
 }
 
-/** Page guard: unknown server -> 404, no access -> back to the server list. */
+/** Page guard of the platform administration (/admin): platform owners only; anyone else gets a plain 404. */
+export async function requirePlatformAdminPage(): Promise<Identity> {
+  const identity = await getIdentity();
+  if (!identity) redirect("/login");
+  if (!isPlatformOwner(identity.discordId)) notFound();
+  return identity;
+}
+
+/** Page guard: unknown server -> 404, suspended or no access -> back to the server list. */
 export async function requireStaffPage(serverId: string): Promise<{ user: SessionUser; server: Server }> {
-  await requireIdentityPage();
+  const identity = await requireIdentityPage();
   const server = await getServer(serverId);
   if (!server) notFound();
+  if (server.suspended && !isPlatformOwner(identity.discordId)) redirect("/servers?error=suspended");
+  if (!(await betaAllows(identity.discordId, server.id))) redirect("/servers?error=beta");
   const user = await getSessionUser(serverId);
   if (!user) redirect("/servers?error=forbidden");
   return { user, server };

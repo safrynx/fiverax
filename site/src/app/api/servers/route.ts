@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
-import { getIdentity, listAccessibleServers } from "@/lib/auth";
+import { getIdentity, listAccessibleServers, requireIdentityApi } from "@/lib/auth";
 import { isPlatformOwner } from "@/lib/config";
+import { rateLimit } from "@/lib/rate-limit";
 import { recordReferral } from "@/lib/referrals";
 import { REF_COOKIE } from "@/lib/referrals-shared";
 import { createServerFor } from "@/lib/servers";
@@ -22,12 +23,15 @@ export async function GET() {
   return NextResponse.json({ servers: servers.map((s) => ({ id: s.id, name: s.name, guildId: s.guildId })) });
 }
 
-const STATUS: Record<string, number> = { guild_taken: 409, too_many_servers: 409, guild_required: 400, guild_not_managed: 403 };
+const STATUS: Record<string, number> = { guild_taken: 409, too_many_servers: 409, guild_required: 400, guild_not_managed: 403, registrations_closed: 403 };
 
 /** POST /api/servers — register a Discord guild the user manages as a new server; they become its owner. */
 export async function POST(req: NextRequest) {
-  const identity = await getIdentity();
-  if (!identity) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const guard = await requireIdentityApi();
+  if ("error" in guard) return guard.error;
+  const { identity } = guard;
+  // Creating and deleting in a loop would spam the logs and the Discord API: a few creations per hour are plenty.
+  if (!(await rateLimit(`server_create:${identity.discordId}`, 10, 3600))) return NextResponse.json({ error: "too_many_requests" }, { status: 429 });
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "validation", issues: parsed.error.issues }, { status: 400 });
 

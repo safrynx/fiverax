@@ -31,6 +31,8 @@ export type Viewer = { discordId: string; username: string; avatarUrl: string | 
 
 const iso = (d = new Date()) => d.toISOString();
 const day = (d = new Date()) => d.toISOString().slice(0, 10);
+/** SQL condition on directory_listings: the listings of servers suspended by the platform admins are hidden. */
+const NOT_SUSPENDED = "server_id NOT IN (SELECT id FROM servers WHERE suspended_at IS NOT NULL)";
 
 // ---- listings ----
 
@@ -165,7 +167,7 @@ async function featuredIds(now = new Date()): Promise<Set<string>> {
 export type DirectoryQuery = { q?: string; tag?: string; framework?: string; language?: string; online?: boolean; protectedOnly?: boolean; sort?: DirectorySort };
 
 export async function listDirectory(query: DirectoryQuery = {}, now = new Date()): Promise<{ cards: DirectoryCard[]; featured: DirectoryCard[]; total: number }> {
-  const rows = await db.all<ListingRow>("SELECT server_id, slug, data_json, published, published_at, updated_at FROM directory_listings WHERE published = 1");
+  const rows = await db.all<ListingRow>(`SELECT server_id, slug, data_json, published, published_at, updated_at FROM directory_listings WHERE published = 1 AND ${NOT_SUSPENDED}`);
   const ids = rows.map((r) => r.server_id);
   const [live, ratings, featured, votes, levels, titles] = await Promise.all([
     liveSummaries(ids, now), ratingSummaries(ids), featuredIds(now), monthlyVotes(now), publicLevels(ids, now), ambassadors(ids)
@@ -210,7 +212,7 @@ export async function getPublicListing(slug: string, opts: { viewer?: Viewer | n
   const row = await db.get<ListingRow>("SELECT server_id, slug, data_json, published, published_at, updated_at FROM directory_listings WHERE slug = ?", [slug]);
   if (!row || (!row.published && !opts.preview)) return null;
   const server = await getServer(row.server_id);
-  if (!server) return null;
+  if (!server || server.suspended) return null;
   const listing = toListing(row, server);
   const [live, ratings, featured, store, reviews] = await Promise.all([
     liveSummaries([row.server_id], now),
@@ -230,7 +232,7 @@ export async function getPublicListing(slug: string, opts: { viewer?: Viewer | n
 }
 
 export async function sitemapListings(): Promise<{ slug: string; updatedAt: string }[]> {
-  const rows = await db.all<{ slug: string; updated_at: string }>("SELECT slug, updated_at FROM directory_listings WHERE published = 1");
+  const rows = await db.all<{ slug: string; updated_at: string }>(`SELECT slug, updated_at FROM directory_listings WHERE published = 1 AND ${NOT_SUSPENDED}`);
   return rows.map((r) => ({ slug: r.slug, updatedAt: r.updated_at }));
 }
 
@@ -436,7 +438,7 @@ export async function track(slug: string, kind: StatKind | "cta", now = new Date
     return;
   }
   if (!STAT_KINDS.includes(kind)) return;
-  const row = await db.get<{ server_id: string }>("SELECT server_id FROM directory_listings WHERE slug = ? AND published = 1", [slug]);
+  const row = await db.get<{ server_id: string }>(`SELECT server_id FROM directory_listings WHERE slug = ? AND published = 1 AND ${NOT_SUSPENDED}`, [slug]);
   if (!row) return;
   await db.run("INSERT INTO directory_stats (server_id, day, kind, count) VALUES (?, ?, ?, 1) ON CONFLICT (server_id, day, kind) DO UPDATE SET count = count + 1", [
     row.server_id, day(now), kind

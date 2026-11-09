@@ -344,7 +344,7 @@ export function parseExplanation(text: string): AIReview | null {
 }
 
 /** Ask the AI about one finding of a report (only its 3 lines are sent); the answer is kept in the report. */
-export async function explainFinding(serverId: string, scanId: number, index: number): Promise<AIReview> {
+export async function explainFinding(serverId: string, scanId: number, index: number, actorId: string | null = null): Promise<AIReview> {
   if (!aiConfigured()) throw new AuditError("ai_not_configured");
   const scan = await getScan(serverId, scanId);
   const finding = scan?.report?.findings[index];
@@ -359,7 +359,7 @@ export async function explainFinding(serverId: string, scanId: number, index: nu
   ].filter(Boolean).join("\n");
   let review: AIReview | null;
   try {
-    review = parseExplanation(await chatJson(EXPLAIN_PROMPT, user, { maxTokens: 1500, temperature: 0.2, timeoutMs: 50_000 }));
+    review = parseExplanation(await chatJson(EXPLAIN_PROMPT, user, { quota: { serverId, userId: actorId, kind: "explain" }, maxTokens: 1500, temperature: 0.2, timeoutMs: 50_000 }));
   } catch (error) {
     throw new AuditError(error instanceof Error ? error.message : "ai_error");
   }

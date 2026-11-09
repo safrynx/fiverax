@@ -144,7 +144,7 @@ export const KIT: { key: KitKey; title: string; text: string; rules: string[]; u
     key: "fvx_event_guard",
     title: "Garde des événements serveur",
     text: "Une fonction à appeler au début de tes événements : délai anti-spam par joueur, nombre d'appels par minute, distance au point et montant valide. Corrige les événements « exploitables » du scanner sans réécrire tes scripts.",
-    rules: ["trusted_event", "unchecked_reward", "client_trust"],
+    rules: ["trusted_event", "unchecked_reward", "client_trust", "exploitable_resources"],
     usage: "if not exports.fvx_event_guard:check(source, 'shop:buy', { cooldown = 1000, coords = vector3(25.7, -1347.3, 29.5), maxDistance = 10.0, amount = count, max = 50 }) then return end"
   },
   {
@@ -181,8 +181,10 @@ export function hardeningCfg(rules: Iterable<string> | null): string {
   if (want("endpoint_privacy") || want("public_endpoints")) lines.push("sv_endpointprivacy true               # IP des joueurs cachées");
   if (want("pure_level")) lines.push("sv_pureLevel 1                        # fichiers du jeu modifiés refusés");
   if (want("game_build")) lines.push("set sv_enforceGameBuild 3258          # même contenu (DLC) pour tout le monde");
-  if (want("no_onesync")) lines.push("set onesync on                        # le serveur voit les entités (requis par l'anticheat)");
+  if (want("no_onesync") || want("onesync_legacy")) lines.push("set onesync on                        # le serveur voit les entités (requis par l'anticheat)");
+  if (want("public_identifiers")) lines.push("set sv_exposePlayerIdentifiersInHttpEndpoint false   # comptes des joueurs cachés sur /players.json");
   if (want("rcon")) lines.push("# retire la ligne rcon_password : txAdmin et la console du panel la remplacent");
+  if (has?.has("dev_resource")) lines.push("# retire la ligne ensure runcode (exécution de code à distance)");
   if (!has || has.has("public_endpoints") || has.has("no_anticheat")) {
     lines.push("", "# Kit Fiverax (anti-flood de connexion)", "ensure fvx_join_guard");
   }

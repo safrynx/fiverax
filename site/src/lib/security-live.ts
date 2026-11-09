@@ -51,7 +51,7 @@ export async function readFrame(serverId: string, target: number, now = new Date
 
 // ---- actions for the Discord bot ----
 
-export const BOT_ACTIONS = ["lockdown", "unlock", "backup", "restore"] as const;
+export const BOT_ACTIONS = ["lockdown", "unlock", "backup", "restore", "audit"] as const;
 export type BotActionKind = (typeof BOT_ACTIONS)[number];
 const PENDING_TTL_MS = 5 * 60_000;
 
@@ -75,7 +75,7 @@ export async function exchangeBotActions(results: { id: number; ok: boolean; mes
     stmt("UPDATE bot_actions SET status = 'expired' WHERE status = 'pending' AND created_at < ?", [iso(new Date(now.getTime() - PENDING_TTL_MS))]),
     stmt(
       `UPDATE bot_actions SET status = 'sent', sent_at = ? WHERE status = 'pending'
-       AND server_id IN (SELECT id FROM servers WHERE guild_id IS NOT NULL)
+       AND server_id IN (SELECT id FROM servers WHERE guild_id IS NOT NULL AND suspended_at IS NULL)
        RETURNING id, server_id, kind, payload`,
       [iso(now)]
     )

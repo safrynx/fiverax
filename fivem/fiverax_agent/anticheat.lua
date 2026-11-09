@@ -1,10 +1,11 @@
 -- Fiverax anticheat: server-side layers, driven by the settings of the panel (Sécurité > Anticheat > Réglages).
 --
---   1. Event protection: honeypot events (only cheats fire them) and rate limits on protected events.
+--   1. Event protection: honeypot events (only cheats fire them), rate limits on protected events, and events acting
+--      on another player (handcuff, revive, jail, bill…) fired on someone far away ("cuff all" menus).
 --   2. Game events: entity creation, explosions, weapons given / removed, ejections, particles, projectiles,
---      damage, checked and cancelled here (OneSync).
+--      damage (distance, rapid fire, mass kills), checked and cancelled here (OneSync).
 --   3. Player checks every 2 s: godmode, health / armour, super jump, invisibility, damage modifiers, weapons and
---      skins, speed and teleports.
+--      skins, speed, teleports, noclip, and the speed of the vehicle they drive.
 --   4. Client module (client.lua): heartbeat, resources injected by an executor, spectate, vision.
 --
 -- Each detection has an action set on the panel: off, log (recorded only), kick or ban; with "Capture" a screenshot
@@ -18,6 +19,7 @@ local HEARTBEAT_TIMEOUT = 45 -- seconds without heartbeat from the client module
 
 local settings = nil
 local honeypots, protected, weapons, models, peds, explosions = {}, {}, {}, {}, {}, {}
+local targeted = {}          -- [event] = max distance (meters) to the player it acts on
 local registered = {}
 local counters = {}          -- [src][name] = { start, count, flagged }
 local lastFlag = {}          -- [src:kind] = os.time()
@@ -25,6 +27,7 @@ local positions = {}         -- [src] = { x, y, z, at, ped }
 local hiddenSince = {}       -- [src] = os.time() when the ped became invisible
 local heartbeats = {}        -- [src] = { at, token }
 local teleportAllowed = {}   -- [src] = os.time() until which teleports are fine
+local noclipStreak = {}      -- [src] = consecutive checks moving without real speed
 local dropping = {}
 
 local function hashSet(list)
@@ -123,11 +126,26 @@ local function ownedByRunningResource(event)
     return prefix ~= nil and GetResourceState(prefix) == 'started'
 end
 
+-- An event acting on another player (first argument = their server id): that player must be close. -1 is everyone.
+local function checkTargeted(src, event, target)
+    if not setting('event_distance') or exempt(src) then return end
+    local t = tonumber(target)
+    if not t then return end
+    if t == -1 then return detect(src, 'event_distance', { event = event, cible = 'tous les joueurs' }) end
+    if t == src or t <= 0 or not GetPlayerName(t) then return end
+    local a, b = GetPlayerPed(src), GetPlayerPed(t)
+    if not a or a == 0 or not b or b == 0 then return end
+    local distance = #(GetEntityCoords(a) - GetEntityCoords(b))
+    if distance > targeted[event] then
+        detect(src, 'event_distance', { event = event, cible = GetPlayerName(t), distance = math.floor(distance) })
+    end
+end
+
 local function watchEvent(event)
     if registered[event] then return end
     registered[event] = true
     RegisterNetEvent(event)
-    AddEventHandler(event, function()
+    AddEventHandler(event, function(target)
         local src = tonumber(source)
         if not src or src <= 0 then return end
         if honeypots[event] and not ownedByRunningResource(event) then
@@ -137,6 +155,7 @@ local function watchEvent(event)
             local isOver, count = over(src, 'ev:' .. event, settings.limits.eventsPer10s)
             if isOver then detect(src, 'event_spam', { event = event, count = count }) end
         end
+        if targeted[event] and settings then checkTargeted(src, event, target) end
     end)
 end
 
@@ -146,9 +165,14 @@ FVX.onSettings = function(s)
     weapons, models, peds = hashSet(s.blacklistedWeapons), hashSet(s.blacklistedModels), hashSet(s.blacklistedPeds)
     explosions = {}
     for _, t in ipairs(s.blockedExplosions or {}) do explosions[t] = true end
+    targeted = {}
+    for _, e in ipairs(s.targetedEvents or {}) do
+        if type(e) == 'table' and type(e.event) == 'string' then targeted[e.event] = tonumber(e.maxDistance) or 15 end
+    end
     -- Handlers cannot be removed: an event taken off the lists is simply ignored by the handler.
     for event in pairs(honeypots) do watchEvent(event) end
     for event in pairs(protected) do watchEvent(event) end
+    for event in pairs(targeted) do watchEvent(event) end
 end
 
 -- ---- 2. game events (OneSync) ----
@@ -235,9 +259,39 @@ AddEventHandler('startProjectileEvent', function(sender)
     end
 end)
 
+-- Is the entity hit by this damage event a player's ped? (true when the native is missing: count it)
+local function hitsPlayer(data)
+    local id = data.hitGlobalId or (data.hitGlobalIds and data.hitGlobalIds[1])
+    if not id or id == 0 then return false end
+    local victim = NetworkGetEntityFromNetworkId(id)
+    if not victim or victim == 0 or not DoesEntityExist(victim) or GetEntityType(victim) ~= 1 then return false end
+    local ok, isPlayer = pcall(IsPedAPlayer, victim)
+    if not ok then return true end
+    return isPlayer == true or isPlayer == 1
+end
+
 AddEventHandler('weaponDamageEvent', function(sender, data)
     sender = tonumber(sender)
-    if not settings or not guarded('damage_distance', sender) then return end
+    if not settings or not sender or exempt(sender) or type(data) ~= 'table' then return end
+    -- Rapid fire / magic bullet: too many hits in 10 s. Beyond the limit the hits are blocked.
+    if setting('damage_spam') then
+        local isOver, count = over(sender, 'hits', settings.limits.damagePer10s)
+        if isOver then
+            CancelEvent()
+            detect(sender, 'damage_spam', { coups = count, weapon = data.weaponType })
+            return
+        end
+    end
+    -- "Kill all": too many players killed in 10 s. Beyond the limit the killing hits are blocked.
+    if data.willKill and setting('kill_spam') and hitsPlayer(data) then
+        local isOver, count = over(sender, 'kills', settings.limits.killsPer10s)
+        if isOver then
+            CancelEvent()
+            detect(sender, 'kill_spam', { kills = count, weapon = data.weaponType })
+            return
+        end
+    end
+    if not setting('damage_distance') then return end
     local target = data.hitGlobalId or (data.hitGlobalIds and data.hitGlobalIds[1])
     if not target or target == 0 then return end
     local victim = NetworkGetEntityFromNetworkId(target)
@@ -292,19 +346,54 @@ local function checkPlayer(src, now)
     local model = GetEntityModel(ped)
     if setting('blacklisted_ped') and peds[model] then detect(src, 'blacklisted_ped', { model = peds[model] }) end
 
-    -- Speed and teleport, on foot only; a new ped (respawn) or a dead player resets the reference.
+    -- The vehicle this player drives: a land vehicle or a boat faster than the limit (planes and helicopters are free).
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    if vehicle ~= 0 and setting('vehicle_speed') and GetPedInVehicleSeat(vehicle, -1) == ped then
+        local kind = try(GetVehicleType, vehicle)
+        if kind ~= 'plane' and kind ~= 'heli' and kind ~= 'blimp' then
+            local v = GetEntityVelocity(vehicle)
+            local speed = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+            if speed > settings.limits.vehicleSpeed then
+                detect(src, 'vehicle_speed', { kmh = math.floor(speed * 3.6), limite = math.floor(settings.limits.vehicleSpeed * 3.6), type = kind })
+            end
+        end
+    end
+
+    -- Speed, teleport and noclip, on foot only; a new ped (respawn) or a dead player resets the reference.
     local c = GetEntityCoords(ped)
     local prev = positions[src]
     positions[src] = { x = c.x, y = c.y, z = c.z, at = now, ped = ped }
-    if not prev or prev.ped ~= ped or health <= 100 or GetVehiclePedIsIn(ped, false) ~= 0 then return end
-    if (teleportAllowed[src] or 0) >= now then return end
+    if not prev or prev.ped ~= ped or health <= 100 or vehicle ~= 0 or (teleportAllowed[src] or 0) >= now then
+        noclipStreak[src] = nil
+        return
+    end
     local dt = math.max(1, now - prev.at)
     local moved = math.sqrt((c.x - prev.x) ^ 2 + (c.y - prev.y) ^ 2)
-    local falling = prev.z - c.z > 20 -- parachute, fall
+    local climb = c.z - prev.z
+    local falling = -climb > 20 -- parachute, fall
     if moved > settings.limits.teleportDistance then
-        detect(src, 'teleport', { distance = math.floor(moved) })
+        noclipStreak[src] = nil
+        return detect(src, 'teleport', { distance = math.floor(moved) })
     elseif not falling and moved / dt > settings.limits.footSpeed then
         detect(src, 'speedhack', { speed = math.floor(moved / dt * 10) / 10, limit = settings.limits.footSpeed })
+    end
+
+    -- Noclip: the ped keeps travelling while its real (synced) speed stays near zero, because the cheat moves it by
+    -- setting its position. Three checks in a row (6 s): a script teleport is one jump and never counts.
+    if setting('noclip') then
+        local travelled = math.sqrt(moved * moved + climb * climb)
+        local v = GetEntityVelocity(ped)
+        local real = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+        local attached = try(GetEntityAttachedTo, ped)
+        if not falling and travelled / dt >= settings.limits.noclipDistance / 2 and real < 3.0 and (not attached or attached == 0) then
+            noclipStreak[src] = (noclipStreak[src] or 0) + 1
+            if noclipStreak[src] >= 3 then
+                noclipStreak[src] = 0
+                detect(src, 'noclip', { metres = math.floor(travelled), vitesse = math.floor(real * 10) / 10 })
+            end
+        else
+            noclipStreak[src] = nil
+        end
     end
 end
 
@@ -395,6 +484,7 @@ end)
 AddEventHandler('playerDropped', function()
     local src = source
     counters[src], positions[src], hiddenSince[src], heartbeats[src], teleportAllowed[src], dropping[src] = nil, nil, nil, nil, nil, nil
+    noclipStreak[src] = nil
     for key in pairs(lastFlag) do
         if key:find('^' .. src .. ':') then lastFlag[key] = nil end
     end

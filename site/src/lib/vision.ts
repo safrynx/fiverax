@@ -1,3 +1,4 @@
+import { AiQuotaError, consumeAi, type AiScope } from "./ai-quota";
 import type { Screenshot } from "./security";
 
 /**
@@ -40,8 +41,17 @@ export function parseVerdict(text: string): Verdict | null {
   }
 }
 
-export async function analyzeScreenshot(image: Uint8Array, mime: string): Promise<Verdict> {
+/** `quota`: the server the screenshot belongs to (and the staff member who asked for the analysis, if any). */
+export async function analyzeScreenshot(image: Uint8Array, mime: string, quota: Omit<AiScope, "kind">): Promise<Verdict> {
   if (!visionConfigured()) return { verdict: "skipped", score: null, summary: "IA non configurée (AI_API_KEY)" };
+  try {
+    await consumeAi({ ...quota, kind: "vision" });
+  } catch (error) {
+    if (error instanceof AiQuotaError) {
+      return { verdict: "skipped", score: null, summary: error.message === "ai_disabled" ? "IA désactivée sur la plateforme" : "Quota IA du jour atteint" };
+    }
+    throw error;
+  }
   const base = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
   const model = process.env.AI_VISION_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
   const url = `data:${mime};base64,${Buffer.from(image).toString("base64")}`;

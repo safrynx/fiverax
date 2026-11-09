@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/core.test.ts",
     "migrate": "tsx --env-file=.env scripts/migrate.ts",
-    "import-sqlite": "tsx --env-file=.env scripts/import-sqlite.ts"
+    "import-sqlite": "tsx --env-file=.env scripts/import-sqlite.ts",
+    "embed-agent": "tsx scripts/embed-agent.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

@@ -1,0 +1,14 @@
+/* Preview of the bot's Discord profile (bot-card.tsx): Discord's own dark palette, so owners see what members will. */
+.bot-card { position: relative; width: min(100%, 340px); margin: 0; border-radius: 16px; overflow: hidden; background: #232428; color: #f2f3f5; box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.8); font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+.bot-card-banner { height: 120px; background: linear-gradient(135deg, #d4b06a, #8a6a2d); }
+.bot-card-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bot-card-avatar { position: absolute; top: 72px; left: 16px; width: 92px; height: 92px; border-radius: 50%; border: 6px solid #232428; background: #313338; overflow: hidden; display: grid; place-items: center; font-size: 34px; font-weight: 700; }
+.bot-card-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bot-card-body { margin: 52px 12px 14px; padding: 12px; border-radius: 10px; background: #111214; display: grid; gap: 10px; min-height: 90px; }
+.bot-card-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bot-card-name b { font-size: 19px; overflow-wrap: anywhere; }
+.bot-card-tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: #5865f2; color: #fff; letter-spacing: 0.02em; }
+.bot-card-about small { display: block; text-transform: uppercase; font-size: 11px; font-weight: 700; color: #b5bac1; margin-bottom: 4px; }
+.bot-card-about p { margin: 0; font-size: 14px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; color: #dbdee1; }
+.bot-card-empty { margin: 0; font-size: 13px; color: #80848e; }
+.bot-card figcaption { padding: 0 14px 12px; font-size: 12px; color: #949ba4; }

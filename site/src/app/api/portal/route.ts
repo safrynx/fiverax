@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIdentity } from "@/lib/auth";
+import { rateLimit } from "@/lib/rate-limit";
 import { PortalError, submitAppeal } from "@/lib/portal";
 import { enterGiveaway, leaveGiveaway, PortalSiteError, submitForm } from "@/lib/portal-site";
 
@@ -14,6 +15,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const identity = await getIdentity();
   if (!identity) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  // Forms and giveaways have their own rules; this only stops a script from hammering them with one account.
+  if (!(await rateLimit(`portal:${identity.discordId}`, 30, 600))) return NextResponse.json({ error: "too_many_requests" }, { status: 429 });
   const action = req.nextUrl.searchParams.get("action");
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   try {

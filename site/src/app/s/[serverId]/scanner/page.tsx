@@ -20,7 +20,7 @@ export default async function AuditPage({ params, searchParams }: { params: Prom
 
   return (
     <Shell user={user} server={server} active="audit">
-      <PageHead kicker="Sécurité" title="Scanner">
+      <PageHead kicker="Sécurité" title="Scanner" help="/guides/scanner">
         Backdoors, événements exploitables, injections SQL, secrets exposés, configuration, performance et maintenance de toutes les ressources, avec un score sur 100 et le correctif de chaque problème.
       </PageHead>
       <AuditView

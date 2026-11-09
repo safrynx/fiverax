@@ -25,7 +25,7 @@ export default async function ProtectionPage({ params }: { params: Promise<{ ser
 
   return (
     <Shell user={user} server={server} active="protection">
-      <PageHead kicker="Sécurité" title="Protection & badge">
+      <PageHead kicker="Sécurité" title="Protection & badge" help="/guides/scanner">
         Le niveau de protection de ton serveur, vérifié par Fiverax, ce qu&apos;il manque pour monter, ton plan d&apos;action et les ressources prêtes à installer.
         Affiche ensuite le badge « Protégé par Fiverax » sur ton site, ton Discord et ta fiche annuaire.
       </PageHead>

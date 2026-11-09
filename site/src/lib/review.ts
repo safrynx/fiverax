@@ -1,4 +1,5 @@
 import { db, stmt } from "./db";
+import { AiQuotaError, consumeAi } from "./ai-quota";
 import { audit } from "./audit";
 import { releaseLock, tryAcquireLock } from "./bot-status";
 import { isRating, RATINGS, type Rating } from "./ratings";
@@ -41,7 +42,8 @@ export function parseReview(text: string): { rating: Rating; summary: string } |
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function askAI(username: string, comments: { author: string; body: string }[]): Promise<string> {
+async function askAI(serverId: string, username: string, comments: { author: string; body: string }[], userId: string | null): Promise<string> {
+  await consumeAi({ serverId, userId, kind: "review" });
   const base = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
   const model = process.env.AI_MODEL || "llama-3.3-70b-versatile";
   const list = comments.map((c) => `- (${c.author}) ${c.body}`).join("\n").slice(0, 6000);
@@ -137,19 +139,21 @@ export async function generateWeeklyReviews(
     let failed = 0;
     let remaining = 0;
     const errors: string[] = [];
+    /** AI quota reached or AI turned off: the other members wait for a later run (no call, no wait). */
+    let quotaHit = false;
 
     for (const member of members) {
       if (done.has(member.discord_id) && !opts.force) {
         skipped++;
         continue;
       }
-      if (generated + failed >= budget) {
+      if (quotaHit || generated + failed >= budget) {
         remaining++;
         continue;
       }
       const list = commentsOf.get(member.discord_id) ?? [];
       try {
-        const review = parseReview(await askAI(member.username, list));
+        const review = parseReview(await askAI(serverId, member.username, list, opts.actor?.discordId ?? null));
         if (!review) throw new Error("réponse IA illisible");
         await db.batch([
           stmt(
@@ -166,6 +170,12 @@ export async function generateWeeklyReviews(
         ]);
         generated++;
       } catch (error) {
+        if (error instanceof AiQuotaError) {
+          quotaHit = true;
+          remaining++;
+          errors.push(error.message);
+          continue;
+        }
         failed++;
         errors.push(`${member.username}: ${error instanceof Error ? error.message : String(error)}`);
       }

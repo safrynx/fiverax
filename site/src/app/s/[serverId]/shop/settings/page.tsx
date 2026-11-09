@@ -12,7 +12,7 @@ export default async function ShopSettingsPage({ params }: { params: Promise<{ s
 
   return (
     <Shell user={user} server={server} active="shop_settings">
-      <PageHead kicker={server.name} title="Réglages boutique">
+      <PageHead kicker={server.name} title="Réglages boutique" help="/guides/boutique-tebex">
         Liaison avec le webstore Tebex du serveur. Les clés sont chiffrées en base et ne sont jamais renvoyées au navigateur.
       </PageHead>
       <ShopSettingsForm

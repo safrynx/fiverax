@@ -16,7 +16,7 @@ export default async function DirectoryAdminPage({ params }: { params: Promise<{
 
   return (
     <Shell user={user} server={server} active="directory">
-      <PageHead kicker="Réseau Fiverax" title="Fiche annuaire">
+      <PageHead kicker="Réseau Fiverax" title="Fiche annuaire" help="/guides/portail-annuaire">
         Ta page dans l&apos;annuaire public des serveurs Fiverax : les joueurs y voient qui est connecté en direct, lisent les avis de ceux qui ont joué chez toi
         et rejoignent en un clic. Gratuit, publié quand tu veux.
       </PageHead>

@@ -89,6 +89,9 @@ before(async () => {
     audit: await import("../src/lib/server-audit")
   };
   db = m.db.db;
+  // The private beta is on by default (platform-shared.ts). These tests describe the open platform; the beta has its own test.
+  const shared = await import("../src/lib/platform-shared");
+  await (await import("../src/lib/platform")).savePlatformSettings({ discordId: "900000000000000001" }, { ...shared.DEFAULT_PLATFORM_SETTINGS, beta: { active: false, message: "" } });
 });
 
 after(() => {
@@ -476,7 +479,7 @@ test("database: batches are atomic, migrations are idempotent and safe to run co
   const before = (await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n;
   await Promise.all([runMigrations(client), runMigrations(client)]);
   assert.equal((await client.execute("SELECT COUNT(*) AS n FROM schema_migrations")).rows[0].n, before);
-  assert.equal(Number(before), 27);
+  assert.equal(Number(before), 31);
 });
 
 test("bot API: sync snapshot, member event, voice events, heartbeat, playtime, shutdown", async () => {
@@ -1019,7 +1022,7 @@ test("screenshots: data URIs decoded, attached to their detection, AI verdict pa
   assert.deepEqual(m.vision.parseVerdict('```json\n{"verdict":"CHEAT","score":97.4,"summary":"Menu Eulen ouvert"}\n```'), { verdict: "cheat", score: 97, summary: "Menu Eulen ouvert" });
   assert.equal(m.vision.parseVerdict('{"verdict":"maybe","score":5}'), null);
   delete process.env.AI_API_KEY;
-  assert.equal((await m.vision.analyzeScreenshot(decoded!.bytes, "image/png")).verdict, "skipped");
+  assert.equal((await m.vision.analyzeScreenshot(decoded!.bytes, "image/png", { serverId: SEC })).verdict, "skipped");
 
   await m.security.setScreenshotVerdict(SEC, shotId, { verdict: "cheat", score: 92, summary: "ESP" });
   assert.equal((await m.security.listScreenshots(SEC, { verdict: "cheat" }))[0].id, shotId);
@@ -1835,12 +1838,13 @@ test("store creator: draft, publish, address, versions, AI reply, checkout items
 test("network: bans are shared between members only, on hashed identifiers and tokens, private / revoked bans excluded", async () => {
   const net = await import("../src/lib/network");
   const keys = await import("../src/lib/network-keys");
-  const mk = async (name: string) => {
-    const r = await m.servers.createServer({ name, guildId: null, createdBy: A });
+  const mk = async (name: string, createdBy = A) => {
+    const r = await m.servers.createServer({ name, guildId: null, createdBy });
     assert.ok(r.ok);
     return r.server.id;
   };
-  const [N1, N2, N3] = [await mk("Net Alpha"), await mk("Net Bravo"), await mk("Net Charlie")];
+  // Net Charlie is registered by someone else: blocking counts distinct operators, not servers.
+  const [N1, N2, N3] = [await mk("Net Alpha"), await mk("Net Bravo"), await mk("Net Charlie", B)];
   const t = Math.floor(Date.now() / 1000);
   const join = (srv: string, session: string, identifiers: string[], tokens: string[] = []) =>
     agentCall(srv, { events: [{ type: "join", session, name: "Rogue", identifiers, tokens, timestamp: t }] });
@@ -1891,6 +1895,10 @@ test("network: bans are shared between members only, on hashed identifiers and t
   assert.equal(m.networkShared.networkVerdict(both, settings({ minServers: 2, blockCategories: ["cheat"] })).blocked, false);
   assert.equal(m.networkShared.networkVerdict(both, settings({ mode: "alert", minServers: 1 })).blocked, false);
   assert.match(m.networkShared.networkVerdict(both, settings({ minServers: 2 })).message ?? "", /2 autres serveurs/);
+  // Sybil: two servers registered by the same account count once (nobody blocks a player by multiplying their own servers).
+  const sameOperator = { servers: 2, records: both.records.map((r) => ({ ...r, operator: "one-person" })) };
+  assert.equal(m.networkShared.networkVerdict(sameOperator, settings({ minServers: 2 })).blocked, false);
+  assert.notEqual(both.records[0].operator, both.records[1].operator);
 
   // The agent learns the mode; the connection check answers.
   const sec = await agentCall(N1, { secRev: 0 });
@@ -2545,6 +2553,85 @@ test("free scan: stored, the same server answered from cache for 10 min, rate li
   await scan.runPublicScan("109.20.30.40:30120", { ipHash: scan.scanIpHash("198.51.99.1"), discordId: null }, { now: t0, fetcher });
 });
 
+test("free scan v2: checklist, exposure, resources targeted by cheats, leaks, runcode, conflicts, grade", async () => {
+  const x = await import("../src/lib/external-scan-shared");
+  const r = x.analyzeExternal({
+    server: "FXServer-master SERVER v1.0.0.12500 linux",
+    vars: { sv_pureLevel: "1", onesync_enabled: "legacy", sv_enforceGameBuild: "3258", "txAdmin-version": "8.0.1", tags: "fr, ^1rp" },
+    resources: ["es_extended", "qb-core", "oxmysql", "mysql-async", "esx_truckerjob", "ESX_Slotmachine", "cars_leak", "runcode", "fiverax_agent"],
+    players: [{ endpoint: "127.0.0.1", identifiers: ["discord:123456789012345678", "license:abc"] }, { endpoint: "127.0.0.1", identifiers: [] }]
+  }, { build: 12500, recommended: 12000, critical: 7290 });
+  const rules = r.findings.map((f) => f.rule);
+  for (const k of ["onesync_legacy", "framework_conflict", "sql_conflict", "old_mysql", "exploitable_resources", "leaked_resource", "dev_resource", "public_identifiers"]) assert.ok(rules.includes(k), k);
+  for (const k of ["public_endpoints", "no_anticheat", "no_onesync", "pure_level", "scripthook", "old_artifacts"]) assert.ok(!rules.includes(k), k);
+  assert.equal(r.version, 2);
+  assert.equal(r.grade, x.gradeOf(r.score));
+  assert.ok(r.score <= 70); // high problems cap the score
+  assert.deepEqual(r.exposure!.exploitable.map((e) => e.name), ["esx_truckerjob", "ESX_Slotmachine"]);
+  assert.deepEqual(r.exposure!.leaked, ["cars_leak"]);
+  assert.equal(r.exposure!.playerIdentifiers, 1);
+  assert.deepEqual([...r.exposure!.identifierKinds].sort(), ["discord", "license"]);
+  assert.deepEqual([r.facts.txAdmin, r.facts.onesyncMode, r.facts.sqlLib], ["8.0.1", "legacy", "oxmysql"]);
+  assert.deepEqual(r.facts.tags, ["fr", "rp"]);
+  const status = Object.fromEntries(r.checks!.map((c) => [c.key, c.status]));
+  assert.deepEqual(
+    [status.player_ips, status.player_ids, status.code, status.anticheat, status.scripthook, status.artifacts, status.onesync_mode],
+    ["pass", "fail", "locked", "pass", "pass", "pass", "fail"]
+  );
+  assert.match(r.findings.find((f) => f.rule === "public_identifiers")!.detail, /1 joueur sur 2/);
+  assert.ok(!JSON.stringify(r).includes("123456789012345678")); // identifiers are counted, never kept
+  // Each failed check is one of the findings.
+  for (const c of r.checks!.filter((c) => c.status === "fail")) assert.ok(rules.includes(c.rule!), c.key);
+
+  // Hidden convars, resources and players: unknown, never reported as problems.
+  const hidden = x.analyzeExternal({ vars: {}, varsHidden: true, resources: null, players: null }, null);
+  assert.ok(hidden.checks!.filter((c) => c.status === "unknown").length >= 12);
+  assert.equal(hidden.checks!.filter((c) => c.status === "fail").length, 0);
+  // "leak" inside a word is not a leak.
+  const fine = x.analyzeExternal({ vars: { onesync_enabled: "on", sv_pureLevel: "2", sv_enforceGameBuild: "3258" }, resources: ["leaky_pipes", "bleakmoor", "qbx_core", "oxmysql", "fiverax_agent"], players: [] }, null);
+  assert.deepEqual(fine.findings.map((f) => f.rule), ["code_not_scanned"]);
+  assert.equal(fine.grade, "A+");
+
+  assert.deepEqual([100, 90, 80, 70, 55, 40, 10].map(x.gradeOf), ["A+", "A", "B", "C", "D", "E", "F"]);
+  assert.equal(x.percentileOf(5, 10), null);
+  assert.equal(x.percentileOf(30, 40), 75);
+  assert.deepEqual([x.percentileOf(0, 50), x.percentileOf(50, 50)], [1, 99]);
+  const cfg = (await import("../src/lib/protection-shared")).hardeningCfg(["public_identifiers", "onesync_legacy", "dev_resource"]);
+  assert.match(cfg, /sv_exposePlayerIdentifiersInHttpEndpoint false[\s\S]*onesync on|onesync on[\s\S]*sv_exposePlayerIdentifiersInHttpEndpoint false/);
+  assert.match(cfg, /runcode/);
+});
+
+test("free scan v2: steps reported in order, rescan after a fix (logged in), standing among servers and previous scan", async () => {
+  const scan = await import("../src/lib/external-scan");
+  const steps: string[] = [];
+  const who = { ipHash: scan.scanIpHash("203.0.115.1"), discordId: "111111111111111111" };
+  const t0 = new Date("2026-07-01T10:00:00Z");
+  const at = (min: number) => new Date(t0.getTime() + min * 60_000);
+  const fetcher = async () => ({ vars: { onesync_enabled: "true" }, resources: ["qb-core", "esx_pizza"], players: [] });
+  const a = await scan.runPublicScan("51.75.1.1:30120", who, { now: t0, fetcher, onStep: (k) => steps.push(k) });
+  assert.deepEqual(steps, ["resolve", "info", "players", "resources", "artifacts", "analysis"]);
+  assert.ok(a.report.findings.some((f) => f.rule === "exploitable_resources"));
+  assert.equal((await scan.runPublicScan("51.75.1.1:30120", who, { now: at(2), fetcher })).token, a.token); // cached
+  const b = await scan.runPublicScan("51.75.1.1:30120", who, { now: at(2), fetcher, force: true });
+  assert.notEqual(b.token, a.token); // logged in: scanned again after a minute
+  const anon = { ipHash: scan.scanIpHash("203.0.115.2"), discordId: null };
+  assert.equal((await scan.runPublicScan("51.75.1.1:30120", anon, { now: at(3), fetcher, force: true })).token, b.token); // no account: cache
+  const cachedSteps: string[] = [];
+  await scan.runPublicScan("51.75.1.1:30120", anon, { now: at(4), fetcher, onStep: (k) => cachedSteps.push(k) });
+  assert.equal(cachedSteps.length, 6);
+
+  const context = await scan.scanContext(b, at(3));
+  assert.equal(context.previous?.token, a.token);
+  assert.equal(context.percentile, null); // fewer than 20 servers
+  for (let i = 0; i < 24; i++) {
+    const ip = { ipHash: scan.scanIpHash(`198.51.${i}.7`), discordId: null };
+    await scan.runPublicScan(`51.76.${i}.1:30120`, ip, { now: at(5), fetcher: async () => ({ vars: (i % 2 ? { sv_scriptHookAllowed: "1" } : { onesync_enabled: "on", sv_pureLevel: "1", sv_enforceGameBuild: "3258" }) as Record<string, string>, resources: ["qbx_core"], players: [] }) });
+  }
+  const standing = await scan.scanContext(b, at(6));
+  assert.ok(standing.servers >= 25);
+  assert.ok(standing.percentile !== null && standing.percentile > 30 && standing.percentile < 70, String(standing.percentile));
+});
+
 test("protection: levels only from verified checks, rules plan, server.cfg, kit resources pass the scanner and the Studio checks", async () => {
   const p = await import("../src/lib/protection-shared");
   const kit = await import("../src/lib/protection-kit");
@@ -2817,4 +2904,650 @@ test("server portal: draft then published page, forms answered once and decided 
   assert.ok(await site.getPublicPortal("neon-portal", null, { draft: true }));
   await m.servers.deleteServer(server.id);
   assert.equal(await db.get("SELECT 1 FROM portal_form_responses WHERE server_id = ?", [server.id]), undefined);
+});
+
+// ---- security v2: anticheat presets & coverage, insights, security center, Discord audit ----
+
+test("anticheat v2: presets, coverage, new detections and targeted events reach the agent", async () => {
+  const c = m.securityConfig;
+  const base = c.DEFAULT_ANTICHEAT;
+  assert.equal(base.targetedEvents.length, 15);
+  assert.deepEqual([base.limits.vehicleSpeed, base.limits.damagePer10s, base.limits.killsPer10s, base.limits.noclipDistance], [125, 90, 6, 20]);
+  for (const k of ["noclip", "vehicle_speed", "damage_spam", "kill_spam", "event_distance"] as const) assert.ok(base.detections[k], k);
+  assert.ok(base.honeypotEvents.includes("esx_policejob:handcuff"));
+
+  assert.equal(c.presetOf(base), "balanced");
+  const soft = c.applyPreset(base, "soft");
+  assert.equal(c.presetOf(soft), "soft");
+  assert.deepEqual([soft.detections.event_honeypot.action, soft.detections.injected_resource.action, soft.detections.superjump.action, soft.detections.vision.action], ["ban", "kick", "log", "off"]);
+  assert.equal(soft.detections.godmode.screenshot, base.detections.godmode.screenshot); // screenshots kept
+  const strict = c.applyPreset(base, "strict");
+  assert.equal(c.presetOf(strict), "strict");
+  assert.deepEqual([strict.strikes.enabled, strict.detections.superjump.action, strict.detections.teleport.action], [true, "ban", "log"]);
+  const custom = { ...base, detections: { ...base.detections, godmode: { action: "ban" as const, screenshot: true } } };
+  assert.equal(c.presetOf(custom), "custom");
+
+  const [s, b, st] = [soft, base, strict].map(c.anticheatStrength);
+  assert.ok(s < b && b < st, `${s} < ${b} < ${st}`);
+  assert.equal(c.anticheatStrength({ ...base, enabled: false }), 0);
+  assert.ok(c.anticheatStrength({ ...base, alerts: { ...base.alerts, webhookUrl: "https://discord.com/api/webhooks/1/x" } }) > b);
+  assert.deepEqual([c.riskWeight("network_flag"), c.riskWeight("injected_resource"), c.riskWeight("unknown_kind")], [6, 5, 1]);
+
+  // The agent gets the targeted events and the new limits; its new detections are journaled under their label.
+  const SRV = "ac-v2-srv";
+  const first = await agentCall(SRV, { secRev: 0 });
+  assert.equal(first.security?.anticheat.targetedEvents[0].event, "esx_policejob:handcuff");
+  assert.equal(first.security?.anticheat.limits.vehicleSpeed, 125);
+  const t = ts();
+  await agentCall(SRV, { events: [{ type: "join", session: "n1", name: "Flyer", identifiers: ["license:flyer"], timestamp: t }] });
+  await agentCall(SRV, { events: [{ type: "detection", session: "n1", name: "Flyer", kind: "noclip", action: "log", details: { metres: 46, vitesse: 0.4 }, timestamp: t + 5 }] });
+  const [d] = await m.security.listDetections(SRV);
+  assert.deepEqual([d.kind, c.detectionLabel(d.kind)], ["noclip", "Noclip / vol"]);
+});
+
+test("security insights: tuning advice from false positives, player risk, overall posture, scanner events", async () => {
+  const x = await import("../src/lib/security-insights");
+  const settings = m.securityConfig.DEFAULT_ANTICHEAT;
+  const kick = { ...settings, detections: { ...settings.detections, teleport: { action: "kick" as const, screenshot: true } } };
+  const fp = [{ kind: "teleport", total: 10, dismissed: 6, confirmed: 1, players: 5 }];
+  const warn = x.tuningAdvice(fp, kick);
+  assert.equal(warn[0].tone, "warn");
+  assert.match(warn[0].text, /Saut de téléportation/);
+  assert.equal(x.tuningAdvice(fp, settings)[0].tone, "info"); // only recorded: raise the limit
+  assert.equal(x.tuningAdvice([{ kind: "noclip", total: 4, dismissed: 0, confirmed: 4, players: 2 }], settings)[0].tone, "up");
+  assert.match(x.tuningAdvice([{ kind: "speedhack", total: 30, dismissed: 0, confirmed: 0, players: 12 }], settings)[0].title, /30 détections sur 12 joueurs/);
+  assert.deepEqual(x.tuningAdvice([{ kind: "connection_refused", total: 99, dismissed: 50, confirmed: 0, players: 40 }], settings), []);
+
+  assert.equal(x.riskScore({ detections: [], aiCheat: 0, aiSuspicious: 0 }), 0);
+  const one = x.riskScore({ detections: [{ kind: "event_honeypot", status: "open" }], aiCheat: 0, aiSuspicious: 0 });
+  assert.equal(one, 34);
+  assert.equal(x.riskScore({ detections: [{ kind: "event_honeypot", status: "dismissed" }], aiCheat: 0, aiSuspicious: 0 }), 0);
+  assert.ok(x.riskScore({ detections: [{ kind: "event_honeypot", status: "confirmed" }], aiCheat: 0, aiSuspicious: 0 }) > one);
+  assert.ok(x.riskScore({ detections: [{ kind: "event_honeypot", status: "open" }], aiCheat: 1, aiSuspicious: 0 }) > one);
+  assert.deepEqual([x.riskTier(80), x.riskTier(50), x.riskTier(10)], ["high", "medium", "low"]);
+  assert.equal(x.topKinds([{ kind: "noclip", status: "open" }, { kind: "noclip", status: "open" }, { kind: "teleport", status: "open" }, { kind: "godmode", status: "dismissed" }]), "Noclip / vol ×2, Téléportation");
+
+  const full = { scan: { score: 95, ageDays: 2 }, anticheatStrength: 90, agentOnline: true, guildLinked: true, botOnline: true, antiraidEnabled: true, antiraidObserve: false, discordScore: 100, alerts: true, backupRecent: true, network: true };
+  const best = x.posture(full);
+  assert.ok(best.score >= 90 && ["A", "A+"].includes(best.grade), `${best.score}`);
+  const none = x.posture({ ...full, scan: null, agentOnline: false, botOnline: false, discordScore: null, alerts: false, backupRecent: false, network: false });
+  assert.deepEqual([none.score, none.grade, none.weakest.key], [0, "F", "code"]);
+  assert.equal(x.posture({ ...full, scan: { score: 90, ageDays: 45 } }).pillars[0].score, 45); // a stale scan counts half
+  assert.equal(x.posture({ ...full, antiraidObserve: true }).pillars[2].score, 70);
+  assert.equal(x.posture({ ...full, guildLinked: false, backupRecent: false }).pillars[3].score, 100); // no Discord: no backups expected
+
+  assert.deepEqual(x.exploitableEvents([
+    { rule: "trusted_event", detail: "« shop:buy » : AddMoney(…) utilise « amount », envoyé par le client." },
+    { rule: "unchecked_reward", detail: "« jobs:pay » donne une récompense sans aucun if." },
+    { rule: "trusted_event", detail: "« shop:buy » encore" },
+    { rule: "sql_injection", detail: "« nope »" }
+  ]), ["shop:buy", "jobs:pay"]);
+});
+
+test("security center data: players at risk, 14-day timeline, latest events, detection stats", async () => {
+  const SRV = "center-srv";
+  const now = new Date();
+  const t = ts(now);
+  await agentCall(SRV, { events: [
+    { type: "join", session: "r1", name: "Risky", identifiers: ["license:risky"], timestamp: t - 60 },
+    { type: "join", session: "r2", name: "Calm", identifiers: ["license:calm"], timestamp: t - 60 }
+  ] }, now);
+  const players = (await m.players.listPlayers(SRV)).rows;
+  const risky = players.find((p) => p.name === "Risky")!;
+  const calm = players.find((p) => p.name === "Calm")!;
+  for (const kind of ["noclip", "noclip", "teleport"]) await m.security.recordDetection(SRV, { playerId: risky.id, playerName: "Risky", kind, details: {}, action: "log" }, now);
+  const fp = await m.security.recordDetection(SRV, { playerId: calm.id, playerName: "Calm", kind: "speedhack", details: {}, action: "log" }, now);
+  await m.security.reviewDetection(SRV, { discordId: A }, fp, "dismissed");
+  await m.security.recordDetection(SRV, { playerId: null, playerName: "Inconnu", kind: "connection_refused", details: {}, action: "log" }, now);
+  await m.security.banPlayer(SRV, { discordId: A }, { playerId: risky.id, reason: "Noclip", source: "manual", expiresAt: null }, now);
+
+  const ranked = await m.security.riskPlayers(SRV, 7, 8, now);
+  assert.deepEqual(ranked.map((r) => r.name), ["Risky"]); // false positives never count
+  assert.equal(ranked[0].banned, true);
+  assert.match(ranked[0].kinds, /Noclip \/ vol ×2/);
+
+  const days = await m.security.securityTimeline(SRV, 14, now);
+  assert.equal(days.length, 14);
+  assert.deepEqual(days[13], { day: now.toISOString().slice(0, 10), detections: 4, refused: 1, incidents: 0, bans: 1 });
+  assert.equal(days[0].detections, 0);
+
+  const events = await m.security.recentSecurityEvents(SRV, 10);
+  assert.ok(events.some((e) => e.source === "ban" && e.who === "Risky"));
+  assert.ok(!events.some((e) => e.kind === "connection_refused"));
+  const stats = await m.security.detectionStats(SRV, 7, now);
+  assert.deepEqual(stats.find((s) => s.kind === "speedhack"), { kind: "speedhack", total: 1, dismissed: 1, confirmed: 0, players: 1 });
+});
+
+test("discord audit: scored from the bot's snapshot with the anti-raid's context, ten kept, deleted with the server", async () => {
+  const d = await import("../src/lib/discord-audit-shared");
+  const ADMIN = String(1 << 3);
+  const snap = (patch: Partial<import("../src/lib/discord-audit-shared").DiscordSnapshot> = {}) => d.discordSnapshotSchema.parse({
+    memberCount: 420, verificationLevel: 2, mfaLevel: 1, explicitContentFilter: 2, everyonePermissions: String(1 << 10), // view channels
+    bot: { permissions: ADMIN, position: 50 },
+    roles: [{ id: "700000000000000001", name: "Fondateur", permissions: ADMIN, position: 40, members: 2, managed: false }],
+    humanAdmins: 2, bots: [], everyoneOverwrites: [], webhooks: 4, invites: { total: 3, permanent: 1 }, ...patch
+  });
+  const goodCtx = { antiraidEnabled: true, observe: false, lastBackupAt: new Date().toISOString(), alertChannel: true, messageProtection: true };
+  const good = d.analyzeDiscord(snap(), goodCtx);
+  assert.deepEqual([good.score, good.grade, good.findings.length], [100, "A+", 0]);
+  assert.ok(good.checks.every((c) => c.status === "pass"));
+
+  const bad = d.analyzeDiscord(snap({
+    everyonePermissions: String((1 << 3) | (1 << 17)), mfaLevel: 0, verificationLevel: 0, humanAdmins: 9,
+    bot: { permissions: "0", position: 5 },
+    bots: [{ id: "700000000000000009", name: "FreeMusic", permissions: ADMIN, verified: false }],
+    everyoneOverwrites: [{ channelId: "700000000000000010", name: "general", allow: String(1 << 29) }],
+    webhooks: null
+  }), { ...goodCtx, antiraidEnabled: false, lastBackupAt: null });
+  const rules = bad.findings.map((f) => f.rule);
+  for (const r of ["bot_no_audit_log", "bot_not_admin", "bot_role_low", "everyone_dangerous", "everyone_mention", "channel_everyone", "admin_bot_unverified", "many_admins", "mfa_off", "verification_low", "antiraid_off", "no_backup"]) assert.ok(rules.includes(r), r);
+  assert.ok(bad.score <= 35);
+  assert.equal(bad.findings[0].severity, "critical");
+  assert.match(bad.findings.find((f) => f.rule === "everyone_dangerous")!.detail, /Administrateur/);
+  assert.match(bad.findings.find((f) => f.rule === "channel_everyone")!.detail, /#general \(Gérer les webhooks\)/);
+  assert.equal(bad.checks.find((c) => c.key === "webhooks")?.status, "unknown");
+  assert.equal(d.analyzeDiscord(snap(), { ...goodCtx, observe: true }).findings[0].rule, "antiraid_observe");
+
+  // Defaults of the new anti-raid settings, then the audit stored for a server and read back with today's context.
+  const raid = m.securityConfig.DEFAULT_ANTIRAID;
+  assert.deepEqual([raid.mode, raid.joinRaid.smart, raid.messages.blockScams, raid.messages.multiChannel, raid.messages.duplicateRaid], ["protect", true, true, 4, 4]);
+  const created = await m.servers.createServer({ name: "Audit City", guildId: "598700000000000031", createdBy: A });
+  assert.ok(created.ok);
+  const id = created.ok ? created.server.id : "";
+  const audits = await import("../src/lib/discord-audit");
+  assert.equal(await audits.latestDiscordAudit(id), null);
+  for (let i = 0; i < 12; i++) await audits.storeDiscordAudit(id, snap({ humanAdmins: i }), new Date(Date.now() - (12 - i) * 60_000));
+  const latest = await audits.latestDiscordAudit(id);
+  assert.equal(latest?.history.length, 10);
+  assert.ok(latest!.report.findings.some((f) => f.rule === "antiraid_off")); // anti-raid off by default
+  assert.ok(latest!.report.findings.some((f) => f.rule === "many_admins"));
+  assert.ok(await audits.lastDiscordAuditAt(id));
+
+  // The panel queues an audit for the bot like the other Discord actions.
+  const live = await import("../src/lib/security-live");
+  const actionId = await live.enqueueBotAction(id, { discordId: A }, "audit", {});
+  const handed = await live.exchangeBotActions([]);
+  assert.ok(handed.some((a) => a.id === actionId && a.kind === "audit" && a.guildId === "598700000000000031"));
+  await m.servers.deleteServer(id);
+  assert.equal(await db.get("SELECT 1 FROM discord_audits WHERE server_id = ?", [id]), undefined);
+});
+
+// ---- platform security & administration ----
+
+test("sessions: recorded and revocable; unknown, revoked or banned sessions are refused; OAuth state bound to the browser", async () => {
+  process.env.SESSION_CHECK_MS = "0";
+  const platform = await import("../src/lib/platform");
+  const admin = await import("../src/lib/admin");
+  const S1 = "120000000000000001";
+  const who = { discordId: S1, username: "Sess", avatarUrl: null };
+  await platform.recordLogin(who);
+  const token = await m.session.createSession(who, { ipHash: "h", userAgent: "Mozilla/5.0 Firefox/130" });
+  const payload = m.session.decodeSession(token)!;
+  assert.equal(await m.session.isSessionActive(payload), true);
+  // Signed correctly but never recorded (a cookie from before this version, or forged with a leaked secret): refused.
+  assert.equal(await m.session.isSessionActive(m.session.decodeSession(m.session.encodeSession(who))!), false);
+  // Logout ends it for good: the same cookie no longer works.
+  assert.equal(await m.session.revokeSession(payload.nonce, "logout"), true);
+  assert.equal(await m.session.isSessionActive(payload), false);
+  // "Log out everywhere".
+  const a = m.session.decodeSession(await m.session.createSession(who, { ipHash: null, userAgent: null }))!;
+  const b = m.session.decodeSession(await m.session.createSession(who, { ipHash: null, userAgent: null }))!;
+  assert.equal(await m.session.revokeUserSessions(S1, "admin"), 2);
+  assert.deepEqual([await m.session.isSessionActive(a), await m.session.isSessionActive(b)], [false, false]);
+  // A platform ban closes the open sessions and refuses new ones.
+  const c = m.session.decodeSession(await m.session.createSession(who, { ipHash: null, userAgent: null }))!;
+  assert.equal(await admin.adminBanUser({ discordId: "900000000000000001" }, S1, "Spam"), 1);
+  assert.equal(await m.session.isSessionActive(c), false);
+  assert.equal(await platform.isUserBanned(S1), true);
+  const d = m.session.decodeSession(await m.session.createSession(who, { ipHash: null, userAgent: null }))!;
+  assert.equal(await m.session.isSessionActive(d), false);
+  await admin.adminUnbanUser({ discordId: "900000000000000001" }, S1);
+  assert.equal(await m.session.isSessionActive(d), true);
+  assert.equal((await m.session.listUserSessions(S1)).length, 5);
+  // The callback only accepts the state of the browser that started the login.
+  assert.equal(m.session.sameState("abc", "abc"), true);
+  assert.equal(m.session.sameState("abc", "abd"), false);
+  assert.equal(m.session.sameState(undefined, "abc"), false);
+  assert.equal(m.session.sameState("abc", null), false);
+  delete process.env.SESSION_CHECK_MS;
+});
+
+test("platform settings: defaults, journal, registrations closed and server limit for everyone but the admins", async () => {
+  const platform = await import("../src/lib/platform");
+  const shared = await import("../src/lib/platform-shared");
+  const ADMIN = { discordId: "900000000000000001", username: "Boss" };
+  const U = "130000000000000001";
+  const OPEN = { ...shared.DEFAULT_PLATFORM_SETTINGS, beta: { active: false, message: "" } };
+  assert.deepEqual(await platform.getPlatformSettings(), OPEN);
+  assert.deepEqual(platform.parsePlatformSettings("not json"), shared.DEFAULT_PLATFORM_SETTINGS);
+  assert.equal(shared.DEFAULT_PLATFORM_SETTINGS.beta.active, true); // a fresh install starts in private beta
+  await (await import("../src/lib/memberships")).storeUserGuilds(U, [
+    { id: "531000000000000001", name: "Mine", iconUrl: null, canManage: true },
+    { id: "531000000000000002", name: "Mine too", iconUrl: null, canManage: true }
+  ]);
+  try {
+    await platform.savePlatformSettings(ADMIN, { ...OPEN, registrationsOpen: false });
+    assert.deepEqual(await m.servers.createServerFor({ discordId: U, platformOwner: false }, { name: "Closed", guildId: "531000000000000001" }), { ok: false, error: "registrations_closed" });
+    assert.equal((await m.servers.createServerFor({ discordId: ADMIN.discordId, platformOwner: true }, { name: "Admin Only", guildId: null })).ok, true);
+
+    await platform.savePlatformSettings(ADMIN, { ...OPEN, maxServersPerUser: 1 });
+    assert.equal(await m.servers.effectiveMaxServersPerUser(), 1);
+    assert.equal((await m.servers.createServerFor({ discordId: U, platformOwner: false }, { name: "First Of U", guildId: "531000000000000001" })).ok, true);
+    assert.deepEqual(await m.servers.createServerFor({ discordId: U, platformOwner: false }, { name: "Second Of U", guildId: "531000000000000002" }), { ok: false, error: "too_many_servers" });
+
+    const journal = await platform.listAdminAudit();
+    assert.ok(journal.total >= 2);
+    assert.equal(journal.rows[0].action, "settings_save");
+    assert.equal(journal.rows[0].actorName, "Boss");
+    // Invalid values never reach the database.
+    await assert.rejects(platform.savePlatformSettings(ADMIN, { ai: { perServerDaily: -1 } }));
+  } finally {
+    await platform.savePlatformSettings(ADMIN, OPEN);
+  }
+  assert.equal(await m.servers.effectiveMaxServersPerUser(), m.servers.maxServersPerUser());
+});
+
+test("AI quotas: per server, per account and global, counted before any call; disabled AI never calls out", async () => {
+  const platform = await import("../src/lib/platform");
+  const shared = await import("../src/lib/platform-shared");
+  const quota = await import("../src/lib/ai-quota");
+  const ai = await import("../src/lib/ai");
+  const ADMIN = { discordId: "900000000000000001" };
+  const OPEN = { ...shared.DEFAULT_PLATFORM_SETTINGS, beta: { active: false, message: "" } };
+  const realFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"clean","score":1,"summary":"ok"}' } }] }), { status: 200 });
+  }) as typeof fetch;
+  process.env.AI_API_KEY = "k";
+  try {
+    await platform.savePlatformSettings(ADMIN, { ...OPEN, ai: { enabled: true, perServerDaily: 2, perUserDaily: 3, globalDaily: 0 } });
+    const q1 = { serverId: "quota-one", userId: "140000000000000001", kind: "studio" as const };
+    await ai.chatJson("s", "u", { quota: q1 });
+    await ai.chatJson("s", "u", { quota: q1 });
+    await assert.rejects(ai.chatJson("s", "u", { quota: q1 }), /ai_quota_exceeded/);
+    assert.equal(calls, 2); // the refused call never reached the AI API
+    // Same account on another server: its own quota (3) is what stops it.
+    await quota.consumeAi({ serverId: "quota-two", userId: "140000000000000001", kind: "assistant" });
+    await assert.rejects(quota.consumeAi({ serverId: "quota-two", userId: "140000000000000001", kind: "assistant" }), /ai_quota_exceeded/);
+    // Without an account (agent screenshots), only the server's quota counts.
+    await quota.consumeAi({ serverId: "quota-two", kind: "vision" });
+    const usage = await quota.serverAiUsage("quota-one");
+    assert.deepEqual([usage.today, usage.refusedToday >= 1], [2, true]);
+    const summary = await quota.aiUsageSummary(7);
+    assert.ok(summary.today >= 4);
+    assert.equal(summary.topServers.find((s) => s.serverId === "quota-one")?.count, 2);
+
+    // A screenshot analysis over quota is skipped, without calling the AI.
+    const before = calls;
+    const verdict = await (await import("../src/lib/vision")).analyzeScreenshot(new Uint8Array([1, 2, 3]), "image/png", { serverId: "quota-one" });
+    assert.deepEqual([verdict.verdict, verdict.summary, calls], ["skipped", "Quota IA du jour atteint", before]);
+
+    // An admin gives a server its day back.
+    await quota.resetServerAiUsage("quota-one");
+    await quota.consumeAi({ serverId: "quota-one", kind: "plan" });
+
+    // AI turned off: refused at once.
+    await platform.savePlatformSettings(ADMIN, { ...OPEN, ai: { ...shared.DEFAULT_PLATFORM_SETTINGS.ai, enabled: false } });
+    await assert.rejects(ai.chatJson("s", "u", { quota: { serverId: "quota-three", kind: "store" } }), /ai_disabled/);
+
+    // Global cap of the platform.
+    await platform.savePlatformSettings(ADMIN, { ...OPEN, ai: { enabled: true, perServerDaily: 0, perUserDaily: 0, globalDaily: 1 } });
+    await assert.rejects(quota.consumeAi({ serverId: "quota-four", kind: "studio" }), /ai_quota_exceeded/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.AI_API_KEY;
+    await platform.savePlatformSettings(ADMIN, OPEN);
+  }
+});
+
+test("rate limit and client address: shared fixed windows, x-real-ip first, junk refused, hashes per purpose", async () => {
+  const { rateLimit, pruneRateLimits } = await import("../src/lib/rate-limit");
+  const { clientIp, hashIp } = await import("../src/lib/client-ip");
+  const t0 = Date.UTC(2026, 10, 9, 10, 0, 0);
+  assert.equal(await rateLimit("t:key", 2, 60, t0), true);
+  assert.equal(await rateLimit("t:key", 2, 60, t0 + 1000), true);
+  assert.equal(await rateLimit("t:key", 2, 60, t0 + 2000), false);
+  assert.equal(await rateLimit("t:other", 2, 60, t0 + 2000), true); // keys are independent
+  assert.equal(await rateLimit("t:key", 2, 60, t0 + 61_000), true); // next window
+  assert.ok((await pruneRateLimits(t0 + 5 * 86_400_000)) >= 2);
+
+  assert.equal(clientIp(new Headers({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "6.6.6.6, 203.0.113.9" })), "203.0.113.9");
+  assert.equal(clientIp(new Headers({ "x-forwarded-for": " 198.51.100.4 , 10.0.0.1" })), "198.51.100.4");
+  assert.equal(clientIp(new Headers({ "x-real-ip": "<script>", "x-forwarded-for": "nope" })), null);
+  assert.equal(clientIp(new Headers()), null);
+  assert.notEqual(hashIp("203.0.113.9", "vote"), hashIp("203.0.113.9", "scan"));
+  assert.equal(hashIp(null, "vote"), null);
+});
+
+test("suspension: agent refused, bot stops watching and acting, public badge hidden, everything back once restored", async () => {
+  const admin = await import("../src/lib/admin");
+  const botApi = await import("../src/lib/bot-api");
+  const protection = await import("../src/lib/protection");
+  const live = await import("../src/lib/security-live");
+  const ADMIN = { discordId: "900000000000000001", username: "Boss" };
+  const guild = "561000000000000001";
+  const created = await m.servers.createServer({ name: "Suspect RP", guildId: guild, createdBy: A });
+  assert.ok(created.ok);
+  const id = created.ok ? created.server.id : "";
+  const token = await m.servers.rotateFivemToken(id);
+  const badge = await protection.setBadgeEnabled(created.ok ? created.server : { id, name: "" }, { discordId: A }, true);
+  assert.equal((await m.servers.serverForFivemToken(token))?.id, id);
+  assert.ok((await botApi.registeredGuilds()).guilds.some((g) => g.guildId === guild));
+  assert.ok(await protection.publicProtection(badge.publicId));
+
+  await admin.adminSuspendServer(ADMIN, id, "Abus du bot");
+  const server = (await m.servers.getServer(id))!;
+  assert.deepEqual([server.suspended, server.suspendedReason], [true, "Abus du bot"]);
+  assert.equal(await m.servers.serverForFivemToken(token), null);
+  assert.equal(await m.servers.activeServerByGuild(guild), null);
+  assert.equal((await m.servers.getServerByGuild(guild))?.id, id); // still owns its guild (nobody else can take it)
+  assert.ok(!(await botApi.registeredGuilds()).guilds.some((g) => g.guildId === guild));
+  assert.equal(await protection.publicProtection(badge.publicId), null);
+  // A Discord action queued before (or during) the suspension is not handed to the bot.
+  const actionId = await live.enqueueBotAction(id, { discordId: A }, "lockdown", { minutes: 5, lockChannels: false });
+  assert.ok(!(await live.exchangeBotActions([])).some((a) => a.id === actionId));
+  // The server's owners see what happened in its logs; the admins in their journal.
+  assert.ok(await db.get("SELECT 1 FROM audit_log WHERE server_id = ? AND action = 'server_suspended'", [id]));
+  assert.equal((await (await import("../src/lib/platform")).listAdminAudit({ targetKind: "server", targetId: id })).rows[0].action, "server_suspend");
+
+  await admin.adminUnsuspendServer(ADMIN, id);
+  assert.equal((await m.servers.serverForFivemToken(token))?.id, id);
+  assert.ok((await botApi.registeredGuilds()).guilds.some((g) => g.guildId === guild));
+  assert.ok((await live.exchangeBotActions([])).some((a) => a.id === actionId));
+  await m.servers.deleteServer(id);
+});
+
+test("admin: overview and listings, bans by id, owners, deletion behind the typed id, health report", async () => {
+  const admin = await import("../src/lib/admin");
+  const platform = await import("../src/lib/platform");
+  const ADMIN = { discordId: "900000000000000001", username: "Boss" };
+  const created = await m.servers.createServer({ name: "Admin Target", guildId: null, createdBy: A });
+  assert.ok(created.ok);
+  const id = created.ok ? created.server.id : "";
+  await platform.recordLogin({ discordId: A, username: "Alice", avatarUrl: null });
+
+  const overview = await admin.adminOverview();
+  assert.ok(overview.users.total >= 1 && overview.servers.total >= 2);
+  assert.ok((await admin.adminListServers({ q: "admin target" })).rows.some((r) => r.id === id));
+  assert.equal((await admin.adminServerDetail(id))?.owners[0].discordId, A);
+  assert.equal(await admin.adminServerDetail("nope-nope"), null);
+  assert.ok((await admin.adminListUsers({ q: "alice" })).rows.some((u) => u.discordId === A));
+
+  // Ban an account that never logged in; admins and oneself cannot be banned.
+  const stranger = "150000000000000001";
+  await admin.adminBanUser(ADMIN, stranger, "Raid");
+  assert.equal(await platform.isUserBanned(stranger), true);
+  assert.ok((await admin.adminListUsers({ filter: "banned" })).rows.some((u) => u.discordId === stranger));
+  await assert.rejects(admin.adminBanUser(ADMIN, "900000000000000001", "x"), /cannot_ban_self/);
+  await assert.rejects(admin.adminBanUser({ discordId: A }, "900000000000000001", "x"), /cannot_ban_admin/);
+  await admin.adminUnbanUser(ADMIN, stranger);
+  await assert.rejects(admin.adminUnbanUser(ADMIN, stranger), /not_banned/);
+
+  // Owners: the last one stays.
+  await admin.adminAddOwner(ADMIN, id, B);
+  await assert.rejects(admin.adminAddOwner(ADMIN, id, B), /already_exists/);
+  await admin.adminRemoveOwner(ADMIN, id, B);
+  await assert.rejects(admin.adminRemoveOwner(ADMIN, id, A), /last_owner/);
+
+  // Deletion needs the exact id; the legacy server is never deleted from here.
+  await assert.rejects(admin.adminDeleteServer(ADMIN, id, "Admin Target"), /confirm_mismatch/);
+  await assert.rejects(admin.adminDeleteServer(ADMIN, S, S), /legacy_server/);
+  await admin.adminDeleteServer(ADMIN, id, id);
+  assert.equal(await m.servers.getServer(id), null);
+  assert.equal((await platform.listAdminAudit({ targetKind: "server", targetId: id })).rows[0].action, "server_delete");
+
+  const health = await admin.systemChecks();
+  assert.equal(health.database, "ok");
+  assert.equal(health.migrations[0].name, "031_bot_profiles");
+  assert.ok(health.checks.find((c) => c.key === "session_secret")?.ok);
+});
+
+test("private beta: partners only create servers, a server opens when one of its owners is a partner, requests and bug reports", async () => {
+  const platform = await import("../src/lib/platform");
+  const shared = await import("../src/lib/platform-shared");
+  const beta = await import("../src/lib/beta");
+  const memberships = await import("../src/lib/memberships");
+  const ADMIN = { discordId: "900000000000000001", username: "Boss" };
+  const OPEN = { ...shared.DEFAULT_PLATFORM_SETTINGS, beta: { active: false, message: "" } };
+  const P = "160000000000000001"; // becomes a partner
+  const X = "160000000000000002"; // stays outside
+  const STAFF = "160000000000000003";
+  await memberships.storeUserGuilds(P, [{ id: "571000000000000001", name: "P guild", iconUrl: null, canManage: true }]);
+  await memberships.storeUserGuilds(X, [{ id: "571000000000000002", name: "X guild", iconUrl: null, canManage: true }]);
+  // A server registered before the beta by someone who is not a partner.
+  const before = await m.servers.createServerFor({ discordId: X, platformOwner: false }, { name: "Avant Beta", guildId: "571000000000000002" });
+  assert.ok(before.ok);
+  const xServer = before.ok ? before.server.id : "";
+  try {
+    await platform.savePlatformSettings(ADMIN, shared.DEFAULT_PLATFORM_SETTINGS); // beta on (the default)
+    assert.equal(await beta.betaActive(), true);
+    assert.deepEqual(await m.servers.createServerFor({ discordId: P, platformOwner: false }, { name: "Partner RP", guildId: "571000000000000001" }), { ok: false, error: "beta_closed" });
+    assert.equal(await beta.betaAllows(X, xServer), false); // its own server stays closed during the beta
+    assert.equal(await beta.betaAllows(STAFF, xServer), false);
+    assert.equal(await beta.betaAllows(ADMIN.discordId, xServer), true); // admins always
+    assert.equal(await beta.betaAllows(X, S), true); // the original install always opens
+
+    // P asks, the admin accepts: P is a partner and can register a server.
+    await assert.rejects(beta.requestAccess({ discordId: P, username: "Pat" }, { serverName: "x" }), /invalid_request/);
+    await assert.rejects(beta.requestAccess({ discordId: P, username: "Pat" }, { serverName: "Partner RP", link: "javascript:alert(1)" }), /invalid_link/);
+    const req = await beta.requestAccess({ discordId: P, username: "Pat" }, { serverName: "Partner RP", link: "cfx.re/join/abc123", players: "40", message: "Hello" });
+    assert.equal(req.status, "pending");
+    assert.equal(await beta.countPendingRequests(), 1);
+    await beta.approveRequest(ADMIN, P);
+    assert.equal(await beta.isPartner(P), true);
+    assert.equal((await beta.myRequest(P))?.status, "approved");
+    await assert.rejects(beta.approveRequest(ADMIN, P), /unknown_request/);
+    await assert.rejects(beta.requestAccess({ discordId: P, username: "Pat" }, { serverName: "Again" }), /already_partner/);
+    const created = await m.servers.createServerFor({ discordId: P, platformOwner: false }, { name: "Partner RP", guildId: "571000000000000001" });
+    assert.ok(created.ok);
+    const pServer = created.ok ? created.server.id : "";
+    assert.equal(await beta.betaAllows(STAFF, pServer), true); // the partner's team comes along
+
+    // A partner co-owner opens a server registered before the beta.
+    await m.servers.addServerOwner(xServer, P, ADMIN.discordId);
+    assert.equal(await beta.betaAllows(X, xServer), true);
+    await m.servers.removeServerOwner(xServer, P);
+    assert.equal(await beta.betaAllows(X, xServer), false);
+
+    // A refused request can be sent again after 7 days.
+    await beta.requestAccess({ discordId: X, username: "Xav" }, { serverName: "Avant Beta" });
+    await beta.refuseRequest(ADMIN, X);
+    await assert.rejects(beta.requestAccess({ discordId: X, username: "Xav" }, { serverName: "Avant Beta" }), /request_refused_recently/);
+    await beta.requestAccess({ discordId: X, username: "Xav" }, { serverName: "Avant Beta" }, new Date(Date.now() + 8 * 86_400_000));
+    assert.equal((await beta.myRequest(X))?.status, "pending");
+
+    // Removing a partner closes their servers again (nothing deleted).
+    assert.ok((await beta.listPartners()).some((p) => p.discordId === P));
+    await beta.removePartner(ADMIN, P);
+    assert.equal(await beta.betaAllows(STAFF, pServer), false);
+    assert.ok(await m.servers.getServer(pServer));
+    await assert.rejects(beta.removePartner(ADMIN, P), /not_partner/);
+    // Opening the platform opens every server.
+    await platform.savePlatformSettings(ADMIN, OPEN);
+    assert.equal(await beta.betaAllows(STAFF, pServer), true);
+
+    // Bug reports / ideas from the panel.
+    await assert.rejects(beta.sendFeedback({ discordId: X, username: "Xav" }, { message: "court" }), /invalid_feedback/);
+    const id = await beta.sendFeedback({ discordId: X, username: "Xav" }, { kind: "bug", message: "Le bouton Enregistrer ne fait rien", page: "/s/x/anticheat?tab=settings", serverId: xServer });
+    assert.equal(await beta.countOpenFeedback(), 1);
+    const [item] = await beta.listFeedback();
+    assert.deepEqual([item.id, item.kind, item.page, item.serverId], [id, "bug", "/s/x/anticheat?tab=settings", xServer]);
+    await beta.setFeedbackStatus(ADMIN, id, "done", "Corrigé");
+    assert.equal((await beta.listFeedback()).length, 0);
+    assert.equal((await beta.listFeedback("all"))[0].adminNote, "Corrigé");
+    // Unknown kinds and suspicious page / server values are dropped.
+    const id2 = await beta.sendFeedback({ discordId: X, username: "Xav" }, { kind: "nope", message: "Une idée pour la carte en direct", page: "javascript:alert(1)", serverId: "../etc" });
+    const item2 = (await beta.listFeedback()).find((f) => f.id === id2)!;
+    assert.deepEqual([item2.kind, item2.page, item2.serverId], ["bug", null, null]);
+  } finally {
+    await platform.savePlatformSettings(ADMIN, OPEN);
+  }
+});
+
+test("agent download: the embedded copy is exactly fivem/fiverax_agent (run npm run embed-agent after changing the agent)", async () => {
+  const { AGENT_FILES, AGENT_VERSION } = await import("../src/lib/agent-files.generated");
+  const dir = path.resolve(process.cwd(), "../fivem/fiverax_agent");
+  const onDisk = fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).sort();
+  assert.deepEqual(AGENT_FILES.map((f) => f.path), onDisk);
+  for (const f of AGENT_FILES) assert.equal(f.content, fs.readFileSync(path.join(dir, f.path), "utf8").replace(/\r\n/g, "\n"), `${f.path} is stale: npm run embed-agent`);
+  assert.match(fs.readFileSync(path.join(dir, "fxmanifest.lua"), "utf8"), new RegExp(`version '${AGENT_VERSION.replace(/\./g, "\\.")}'`));
+  const archive = m.zip.zip(AGENT_FILES.map((f) => ({ path: `fiverax_agent/${f.path}`, content: f.content })));
+  assert.ok(archive.length > 10_000);
+});
+
+test("anti-raid settings: new per-server options default safely, old saved settings still load, invalid values refused", async () => {
+  const cfg = m.securityConfig;
+  // Settings saved before these options existed (no trustedRoles, dm, per-rule sanction…) load with the defaults.
+  const old = cfg.antiraidSchema.parse({ enabled: true, punishment: "kick", rules: { ban: { enabled: true, max: 2, windowSec: 60 } }, joinRaid: { joins: 8 }, messages: { enabled: true } });
+  assert.deepEqual(old.rules.ban, { enabled: true, max: 2, windowSec: 60, punishment: "default", undo: true });
+  assert.deepEqual([old.trustedRoles, old.alertRoleId, old.dm, old.youngAccountAction], [[], null, { enabled: false, message: "" }, "kick"]);
+  assert.deepEqual([old.joinRaid.action, old.joinRaid.lockChannels, old.joinRaid.joins], ["kick", false, 8]);
+  assert.deepEqual([old.messages.action, old.messages.allowedDomains, old.messages.bannedWords], ["timeout", [], []]);
+  // Every rule gets its own sanction and undo switch.
+  for (const r of cfg.RAID_RULES) assert.equal(cfg.DEFAULT_ANTIRAID.rules[r.key].punishment, "default");
+  const custom = cfg.antiraidSchema.parse({
+    rules: { ban: { enabled: true, max: 1, windowSec: 30, punishment: "ban", undo: false } }, trustedRoles: ["710000000000000001"], alertRoleId: "710000000000000002",
+    dm: { enabled: true, message: "Sanction sur {serveur} : {raison}" }, youngAccountAction: "quarantine", joinRaid: { action: "ban", lockChannels: true },
+    messages: { action: "ban", allowedDomains: ["YouTube.com", "tebex.io"], bannedWords: ["arnaque"] }
+  });
+  assert.deepEqual(custom.rules.ban, { enabled: true, max: 1, windowSec: 30, punishment: "ban", undo: false });
+  assert.deepEqual(custom.messages.allowedDomains, ["youtube.com", "tebex.io"]);
+  assert.equal(cfg.antiraidSchema.safeParse({ rules: { ban: { enabled: true, max: 1, windowSec: 30, punishment: "explode" } } }).success, false);
+  assert.equal(cfg.antiraidSchema.safeParse({ messages: { allowedDomains: ["javascript:alert(1)"] } }).success, false);
+  assert.equal(cfg.antiraidSchema.safeParse({ alertRoleId: "not-a-role" }).success, false);
+  assert.equal(cfg.INCIDENT_LABELS.banned_word, "Mot interdit");
+});
+
+test("screen wall: online players ranked by their detections of the last 24 h, false positives ignored", async () => {
+  const watch = await import("../src/lib/screen-watch");
+  const created = await m.servers.createServer({ name: "Screen RP", guildId: null, createdBy: A });
+  assert.ok(created.ok);
+  const id = created.ok ? created.server.id : "";
+  const t = Math.floor(Date.now() / 1000);
+  await agentCall(id, { events: [
+    { type: "join", session: "w1", name: "Sus", identifiers: ["license:w1"], timestamp: t },
+    { type: "join", session: "w2", name: "Clean", identifiers: ["license:w2"], timestamp: t },
+    { type: "detection", session: "w1", name: "Sus", kind: "noclip", action: "log", timestamp: t },
+    { type: "detection", session: "w1", name: "Sus", kind: "speedhack", action: "log", timestamp: t }
+  ] });
+  const players = (await m.players.listPlayers(id)).rows;
+  const sus = players.find((p) => p.name === "Sus")!.id;
+  const clean = players.find((p) => p.name === "Clean")!.id;
+  let map = await watch.recentDetectionsByPlayer(id, [sus, clean]);
+  assert.equal(map.get(sus)?.count, 2);
+  assert.equal(map.has(clean), false);
+  // A detection marked as a false positive no longer counts.
+  const detection = (await m.security.listDetections(id, { playerId: sus }))[0];
+  await m.security.reviewDetection(id, { discordId: A }, detection.id, "dismissed");
+  map = await watch.recentDetectionsByPlayer(id, [sus, clean]);
+  assert.equal(map.get(sus)?.count, 1);
+  assert.equal((await watch.recentDetectionsByPlayer(id, [])).size, 0);
+  await m.servers.deleteServer(id);
+});
+
+test("bot profile: images and texts checked, Discord answers mapped, CDN addresses", async () => {
+  const bp = await import("../src/lib/bot-profile");
+  const png = `data:image/png;base64,${Buffer.from("x".repeat(300)).toString("base64")}`;
+  assert.equal(bp.cleanImage(png), png);
+  assert.equal(bp.cleanImage("data:image/svg+xml;base64,PHN2Zz4="), null); // SVG never
+  assert.equal(bp.cleanImage("data:image/png;base64,<script>"), null);
+  assert.equal(bp.cleanImage(`data:image/png;base64,${Buffer.alloc(2_000_000).toString("base64")}`), null); // too big
+  assert.equal(bp.cleanImage(42), null);
+
+  assert.deepEqual(bp.guildProfileBody({ nick: "  Los   Santos  Bot ", bio: "" }), { body: { nick: "Los Santos Bot", bio: null } });
+  assert.deepEqual(bp.guildProfileBody({ nick: null, bio: null, avatar: null, banner: null }), { body: { nick: null, bio: null, avatar: null, banner: null } });
+  assert.deepEqual(bp.guildProfileBody({ avatar: png }), { body: { avatar: png } });
+  assert.deepEqual(bp.guildProfileBody({ nick: "x".repeat(33) }), { error: "invalid_nick" });
+  assert.deepEqual(bp.guildProfileBody({ bio: "x".repeat(191) }), { error: "invalid_bio" });
+  assert.deepEqual(bp.guildProfileBody({ banner: "javascript:alert(1)" }), { error: "invalid_image" });
+  assert.deepEqual(bp.guildProfileBody({}), { error: "nothing_to_change" });
+
+  assert.deepEqual(bp.discordFailure(429, { retry_after: 12.4 }), { ok: false, error: "discord_rate_limited", retryAfter: 13 });
+  assert.equal(bp.discordFailure(404, { code: 10004 }).error, "bot_not_in_guild");
+  assert.equal(bp.discordFailure(403, { code: 50013 }).error, "bot_forbidden");
+  assert.equal(bp.discordFailure(401, null).error, "bot_unavailable");
+  assert.deepEqual(bp.discordFailure(400, { code: 50035, errors: { avatar: { _errors: [{ code: "BINARY_TYPE_MAX_SIZE", message: "File cannot be larger than 10240.0 kb." }] } } }),
+    { ok: false, error: "discord_rejected", message: "File cannot be larger than 10240.0 kb." });
+
+  assert.equal(bp.userAvatarUrl("123456789012345678", "a_abc"), "https://cdn.discordapp.com/avatars/123456789012345678/a_abc.gif?size=256");
+  assert.match(bp.userAvatarUrl("123456789012345678", null), /^https:\/\/cdn\.discordapp\.com\/embed\/avatars\/[0-5]\.png$/);
+  assert.equal(bp.memberBannerUrl("500000000000000001", "123456789012345678", "def"), "https://cdn.discordapp.com/guilds/500000000000000001/users/123456789012345678/banners/def.png?size=600");
+  assert.equal(bp.memberAvatarUrl("500000000000000001", "123456789012345678", null), null);
+});
+
+test("bot profile: a server dresses the bot on its own Discord, the admins change it everywhere, the status rides the heartbeat", async () => {
+  const bp = await import("../src/lib/bot-profile");
+  const platform = await import("../src/lib/platform");
+  const botApi = await import("../src/lib/bot-api");
+  const BOT = "777000000000000001";
+  const guild = "581000000000000001";
+  const created = await m.servers.createServer({ name: "Bot Dress RP", guildId: guild, createdBy: A });
+  assert.ok(created.ok);
+  const server = created.ok ? created.server : (null as never);
+  const png = `data:image/png;base64,${Buffer.from("avatar").toString("base64")}`;
+  const calls: { method: string; url: string; body: unknown; reason: string | null }[] = [];
+  let next: { status: number; body: unknown } | null = null;
+  const realFetch = globalThis.fetch;
+  process.env.DISCORD_BOT_TOKEN = "bot-token";
+  globalThis.fetch = (async (input: unknown, init?: { method?: string; body?: string; headers?: Record<string, string> }) => {
+    const url = String(input);
+    calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(init.body) : null, reason: init?.headers?.["X-Audit-Log-Reason"] ?? null });
+    if (next) {
+      const answer = next;
+      next = null;
+      return new Response(JSON.stringify(answer.body), { status: answer.status });
+    }
+    if (url.endsWith("/users/@me")) return new Response(JSON.stringify({ id: BOT, username: init?.method === "PATCH" ? "Fiverax Pro" : "Fiverax", avatar: "ava1", banner: null }));
+    if (url.endsWith("/applications/@me")) return new Response(JSON.stringify({ description: "Le panel FiveM" }));
+    if (url.endsWith(`/guilds/${guild}/members/@me`)) return new Response(JSON.stringify({ nick: "LS Bot", avatar: "gav1", banner: null, user: { id: BOT } }));
+    if (url.endsWith(`/guilds/${guild}/members/${BOT}`)) return new Response(JSON.stringify({ nick: "LS Bot", avatar: "gav1", banner: null }));
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  try {
+    // An owner gives the bot a name, a bio and an avatar on their Discord.
+    const done = await bp.updateGuildBotProfile(server, { discordId: A, username: "Alice" }, { nick: "LS Bot", bio: "Le bot de Los Santos", avatar: png });
+    assert.ok(done.ok);
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    assert.equal(patch.url, `https://discord.com/api/v10/guilds/${guild}/members/@me`);
+    assert.deepEqual(patch.body, { nick: "LS Bot", bio: "Le bot de Los Santos", avatar: png });
+    assert.match(decodeURIComponent(patch.reason ?? ""), /Alice/);
+    assert.ok(done.ok && done.profile.present);
+    assert.equal(done.ok && done.profile.avatarUrl, `https://cdn.discordapp.com/guilds/${guild}/users/${BOT}/avatars/gav1.png?size=256`);
+    assert.equal(done.ok && done.profile.bio, "Le bot de Los Santos"); // kept by the panel when Discord does not echo it
+    const stored = await db.get<{ nick: string; bio: string; avatar_hash: string }>("SELECT nick, bio, avatar_hash FROM bot_profiles WHERE server_id = ?", [server.id]);
+    assert.deepEqual([stored?.nick, stored?.bio, stored?.avatar_hash], ["LS Bot", "Le bot de Los Santos", "gav1"]);
+    assert.ok(await db.get("SELECT 1 FROM audit_log WHERE server_id = ? AND action = 'bot_profile'", [server.id]));
+
+    // Discord refuses: nothing is stored, the owner gets the reason.
+    next = { status: 429, body: { retry_after: 120 } };
+    assert.deepEqual(await bp.updateGuildBotProfile(server, { discordId: A }, { nick: "Autre" }), { ok: false, error: "discord_rate_limited", retryAfter: 120 });
+    assert.equal((await db.get<{ nick: string }>("SELECT nick FROM bot_profiles WHERE server_id = ?", [server.id]))?.nick, "LS Bot");
+    assert.deepEqual(await bp.updateGuildBotProfile({ id: server.id, guildId: null }, { discordId: A }, { nick: "x" }), { ok: false, error: "no_guild" });
+    assert.deepEqual(await bp.updateGuildBotProfile(server, { discordId: A }, { avatar: "data:image/svg+xml;base64,AAAA" }), { ok: false, error: "invalid_image" });
+
+    // Platform admins: the bot everywhere (username, About me), journaled.
+    const identity = await bp.updateBotIdentity({ discordId: "900000000000000001", username: "Boss" }, { username: "Fiverax Pro", description: "Nouvelle bio" });
+    assert.ok(identity.ok);
+    assert.deepEqual(calls.filter((c) => c.method === "PATCH" && /\/(users|applications)\/@me$/.test(c.url)).map((c) => [c.url.replace("https://discord.com/api/v10", ""), c.body]),
+      [["/users/@me", { username: "Fiverax Pro" }], ["/applications/@me", { description: "Nouvelle bio" }]]);
+    assert.equal((await platform.listAdminAudit()).rows[0].action, "bot_identity");
+
+    // The status chosen in /admin/bot rides the heartbeat; the other settings are untouched.
+    const before = await platform.getPlatformSettings();
+    await platform.saveBotPresence({ discordId: "900000000000000001" }, { status: "dnd", activityType: "custom", activityText: "Protège {serveurs} serveurs" });
+    const after = await platform.getPlatformSettings();
+    assert.deepEqual(after.bot, { status: "dnd", activityType: "custom", activityText: "Protège {serveurs} serveurs" });
+    assert.deepEqual({ ...after, bot: before.bot }, before);
+    const beat = await botApi.recordHeartbeat({ guilds: [{ guildId: guild, topRolePosition: 3 }] });
+    assert.deepEqual(beat.presence, after.bot);
+    await assert.rejects(platform.saveBotPresence({ discordId: "900000000000000001" }, { status: "sleeping" }));
+    await platform.saveBotPresence({ discordId: "900000000000000001" }, before.bot);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.DISCORD_BOT_TOKEN;
+    await m.servers.deleteServer(server.id);
+  }
+  assert.equal(await db.get("SELECT 1 FROM bot_profiles WHERE server_id = ?", [server.id]), undefined); // deleted with its server
 });

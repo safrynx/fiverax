@@ -37,7 +37,8 @@ const SCHEMAS = {
   discord_lockdown: { permission: "security_config", schema: z.object({ minutes: z.number().int().min(1).max(1440), lockChannels: z.boolean() }) },
   discord_unlock: { permission: "security_config", schema: z.object({}) },
   discord_backup: { permission: "security_config", schema: z.object({}) },
-  discord_restore: { permission: "security_config", schema: z.object({ backupId: id }) }
+  discord_restore: { permission: "security_config", schema: z.object({ backupId: id }) },
+  discord_audit: { permission: "security_config", schema: z.object({}) }
 } satisfies Record<string, { permission: Permission; schema: z.ZodTypeAny }>;
 
 type Kind = keyof typeof SCHEMAS;
@@ -105,7 +106,8 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
     case "discord_lockdown":
     case "discord_unlock":
     case "discord_backup":
-    case "discord_restore": {
+    case "discord_restore":
+    case "discord_audit": {
       if (!server.guildId) return NextResponse.json({ error: "no_guild" }, { status: 409 });
       const action = kind.slice("discord_".length) as BotActionKind;
       return NextResponse.json({ ok: true, id: await enqueueBotAction(server.id, actor, action, data) });
@@ -115,7 +117,7 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
       const shotId = (data as { id: number }).id;
       const shot = await getScreenshotImage(server.id, shotId);
       if (!shot) return NextResponse.json({ error: "unknown_screenshot" }, { status: 404 });
-      const verdict = await analyzeScreenshot(shot.image, shot.mime);
+      const verdict = await analyzeScreenshot(shot.image, shot.mime, { serverId: server.id, userId: user.discordId });
       await setScreenshotVerdict(server.id, shotId, verdict);
       return NextResponse.json({ ok: true, ...verdict });
     }

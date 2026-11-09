@@ -1,4 +1,7 @@
 import { closeStalePlayerSessions } from "./agent";
+import { pruneAiUsage } from "./ai-quota";
+import { pruneRateLimits } from "./rate-limit";
+import { pruneSessions } from "./session";
 import { pruneCaptures } from "./blackbox";
 import { pruneSecurityData } from "./security";
 import { pruneShopEvents } from "./tebex";
@@ -49,7 +52,14 @@ export async function runMaintenance() {
     console.error("[referrals] qualify failed:", e instanceof Error ? e.message : e);
     return 0;
   });
+  // Platform bookkeeping: ended sessions, rate-limit windows and old AI usage (never fatal for the tick).
+  const [sessionsPruned, rateLimitsPruned, aiUsagePruned] = await Promise.all([
+    pruneSessions().catch(() => 0), pruneRateLimits().catch(() => 0), pruneAiUsage().catch(() => 0)
+  ]);
   const due: Server[] = [];
   for (const server of await listServers()) if (await reviewDue(server)) due.push(server);
-  return { staleFivemClosed, stalePlayersClosed, screenshotsPruned, shopEventsPruned, capturesPruned, referralsQualified, giveawaysDrawn, reviewDue: due };
+  return {
+    staleFivemClosed, stalePlayersClosed, screenshotsPruned, shopEventsPruned, capturesPruned, referralsQualified, giveawaysDrawn,
+    sessionsPruned, rateLimitsPruned, aiUsagePruned, reviewDue: due
+  };
 }

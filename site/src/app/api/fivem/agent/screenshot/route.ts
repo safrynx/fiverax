@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
     await setScreenshotVerdict(server.id, id, { verdict: "skipped", score: null, summary: "Analyse IA désactivée" });
     return NextResponse.json({ ok: true, id, verdict: "skipped" });
   }
-  const verdict = await analyzeScreenshot(image.bytes, image.mime);
+  // Counted against this server only: requestedBy comes from the agent, so it must not charge anyone's own quota.
+  const verdict = await analyzeScreenshot(image.bytes, image.mime, { serverId: server.id, userId: null });
   await setScreenshotVerdict(server.id, id, verdict);
 
   if (verdict.verdict === "cheat") {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { auditStmt } from "./audit";
 import { db, stmt, type Stmt } from "./db";
 import { banKeysStmt, networkKeys } from "./network-keys";
@@ -84,8 +85,12 @@ export async function leaveNetwork(serverId: string, actor: Actor, now = new Dat
 
 type RecordRow = {
   ban_id: number; server_id: string; server_name: string; icon_url: string | null; name: string; reason: string; category: string;
-  created_at: string; expires_at: string | null; kinds: string;
+  created_at: string; expires_at: string | null; kinds: string; created_by: string | null;
 };
+
+/** Opaque key of the account that registered a server (several servers of one person count once, never shown). */
+const operatorKey = (createdBy: string | null, serverId: string) =>
+  createHash("sha256").update(`operator:${createdBy && createdBy !== "system" ? createdBy : `server:${serverId}`}`).digest("base64url").slice(0, 16);
 
 /**
  * Active shared bans of the other members matching these identifiers / tokens. Null when the viewing server is not
@@ -100,13 +105,13 @@ async function reputationOf(viewerId: string, identifiers: string[], tokens: str
   const keys = networkKeys(identifiers, tokens).map(([key]) => key);
   if (keys.length === 0) return { servers: 0, records: [] };
   const rows = await db.all<RecordRow>(
-    `SELECT b.id AS ban_id, b.server_id, s.name AS server_name, s.icon_url, b.name, b.reason, b.category, b.created_at, b.expires_at,
+    `SELECT b.id AS ban_id, b.server_id, s.name AS server_name, s.icon_url, s.created_by, b.name, b.reason, b.category, b.created_at, b.expires_at,
             GROUP_CONCAT(DISTINCT k.kind) AS kinds
      FROM network_ban_keys k
      JOIN bans b ON b.id = k.ban_id AND b.server_id = k.server_id
      JOIN network_members m ON m.server_id = b.server_id
      JOIN servers s ON s.id = b.server_id
-     WHERE k.key IN (${keys.map(() => "?").join(",")}) AND b.server_id <> ? AND b.shared = 1
+     WHERE k.key IN (${keys.map(() => "?").join(",")}) AND b.server_id <> ? AND b.shared = 1 AND s.suspended_at IS NULL
        AND b.revoked_at IS NULL AND (b.expires_at IS NULL OR b.expires_at > ?)
      GROUP BY b.id
      LIMIT 100`,
@@ -115,6 +120,7 @@ async function reputationOf(viewerId: string, identifiers: string[], tokens: str
   const records: NetworkRecord[] = rows.map((r) => ({
     banId: Number(r.ban_id),
     serverId: r.server_id,
+    operator: operatorKey(r.created_by, r.server_id),
     serverName: r.server_name,
     serverIcon: r.icon_url,
     playerName: r.name,

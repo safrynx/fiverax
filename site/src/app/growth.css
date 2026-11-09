@@ -144,3 +144,50 @@
 .gx-progress { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); }
 .gx-progress span { display: inline-flex; align-items: center; gap: 4px; }
 .gx-progress span[data-done="true"] { color: var(--ok); }
+
+/* scan v2: live steps, grade, standing, exposure, checklist */
+.gx-progress-steps { list-style: none; padding: 12px 14px; margin: 4px 0 0; display: grid; gap: 6px 18px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); }
+.gx-progress-steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); transition: color 0.2s; }
+.gx-progress-steps li[data-state="done"] { color: var(--text); }
+.gx-progress-steps li[data-state="done"] svg { color: var(--ok); }
+.gx-progress-steps li[data-state="run"] { color: var(--text); }
+.gx-progress-steps li[data-state="run"] svg { color: var(--accent); }
+.gx-progress-steps li[data-state="wait"] svg { opacity: 0.5; }
+
+.gx-grade-wrap { display: flex; align-items: center; gap: 14px; }
+.gx-grade { display: grid; place-items: center; width: 92px; height: 92px; border-radius: 22px; font-family: var(--font-display); font-weight: 800; font-size: 46px; letter-spacing: -0.04em; color: var(--tier); border: 2px solid color-mix(in srgb, var(--tier) 60%, transparent); background: radial-gradient(80px 80px at 30% 20%, color-mix(in srgb, var(--tier) 22%, transparent), transparent 70%), var(--surface); box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--tier) 55%, transparent); }
+.gx-standing { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.gx-standing b { color: var(--text); }
+.gx-standing a { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; color: var(--muted); }
+.gx-standing a[data-trend="up"] { color: var(--ok); }
+.gx-standing a[data-trend="down"] { color: var(--bad); }
+
+.gx-exposure { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.gx-exposure > div { display: grid; gap: 4px; align-content: start; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); }
+.gx-exposure > div[data-bad="true"] { border-color: rgba(251, 113, 133, 0.45); background: radial-gradient(220px 120px at 0% 0%, rgba(251, 113, 133, 0.1), transparent 70%), var(--surface); }
+.gx-exposure b { font-family: var(--font-display); font-size: 28px; line-height: 1; letter-spacing: -0.03em; }
+.gx-exposure > div[data-bad="true"] b { color: var(--bad); }
+.gx-exposure span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.gx-exposure strong { color: var(--text); font-weight: 600; }
+.gx-exploits { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+.gx-exploits li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(245, 158, 59, 0.35); background: rgba(245, 158, 59, 0.06); }
+.gx-exploits li svg { color: var(--warn); flex: none; }
+.gx-exploits li span { color: var(--muted); }
+
+.gx-checklist { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.gx-checklist ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 2px; }
+.gx-checklist li { display: flex; gap: 9px; align-items: flex-start; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.gx-checklist li svg { flex: none; margin-top: 2px; }
+.gx-checklist li small { color: var(--muted); }
+.gx-checklist li[data-status="pass"] svg { color: var(--ok); }
+.gx-checklist li[data-status="fail"] svg { color: var(--bad); }
+.gx-checklist li[data-status="fail"] span { font-weight: 600; }
+.gx-checklist li[data-status="unknown"], .gx-checklist li[data-status="locked"] { color: var(--muted); }
+.gx-checklist li[data-status="locked"] svg { color: var(--accent); }
+
+/* scan landing: sample report */
+.gx-sample { display: grid; gap: 16px; align-items: center; padding: 20px; border: 1px solid var(--line-2); border-radius: 18px; background: var(--surface); }
+@media (min-width: 820px) { .gx-sample { grid-template-columns: auto 1fr; } }
+.gx-sample ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.gx-sample li { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.gx-sample li svg { flex: none; }

@@ -1,14 +1,17 @@
 import Link from "next/link";
-import { BadgeCheck, Ban, PanelsTopLeft, Bot, Gift, Globe, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, Siren, TrendingUp, Users } from "lucide-react";
+import { BadgeCheck, Ban, BookOpen, PanelsTopLeft, Bot, Crown, Gift, Globe, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, Radar, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, Siren, TrendingUp, Users } from "lucide-react";
 import { can, isOwner } from "@/lib/auth";
+import { isPlatformOwner } from "@/lib/config";
+import { getPlatformSettings } from "@/lib/platform";
 import type { Server } from "@/lib/servers";
 import type { Identity, SessionUser } from "@/lib/types";
 import Avatar from "./avatar";
 import { Mark } from "./brand";
+import FeedbackButton from "./feedback-button";
 import LogoutButton from "./logout-button";
 import { GuildIcon } from "./new-server-form";
 
-export type NavKey = "dashboard" | "live" | "map" | "players" | "reports" | "server" | "assistant" | "anticheat" | "audit" | "protection" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "directory" | "portal" | "referral" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "settings";
+export type NavKey = "dashboard" | "live" | "map" | "players" | "reports" | "server" | "assistant" | "security" | "anticheat" | "audit" | "protection" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "directory" | "portal" | "referral" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "bot" | "settings";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; active?: boolean };
 export type NavSection = { label: string; items: NavItem[] };
@@ -52,6 +55,7 @@ export default function Shell({ user, server, active, children }: Props) {
       ? [{
           label: "Sécurité",
           items: [
+            item("security", `${base}/security`, "Centre de sécurité", Radar),
             item("anticheat", `${base}/anticheat`, "Anticheat", ShieldAlert),
             item("audit", `${base}/scanner`, "Scanner", ScanSearch),
             item("protection", `${base}/protection`, "Protection & badge", BadgeCheck),
@@ -105,7 +109,7 @@ export default function Shell({ user, server, active, children }: Props) {
       ]
     },
     ...(isOwner(user)
-      ? [{ label: "Administration", items: [item("admin", `${base}/admin`, "Accès & rôles", KeyRound), item("settings", `${base}/settings`, "Configuration", Settings)] }]
+      ? [{ label: "Administration", items: [item("admin", `${base}/admin`, "Accès & rôles", KeyRound), item("bot", `${base}/bot`, "Bot Discord", Bot), item("settings", `${base}/settings`, "Configuration", Settings)] }]
       : [])
   ];
 
@@ -120,8 +124,26 @@ type FrameProps = {
   children: React.ReactNode;
 };
 
-/** Bare layout (sidebar, mobile top bar, content), shared by the server pages and the server list. */
-export function Frame({ identity, server, sections, children }: FrameProps) {
+/** The platform's announcement (/admin/settings), and for the admins a reminder that maintenance is on. */
+async function PlatformNotice({ admin }: { admin: boolean }) {
+  const { announcement, maintenance } = await getPlatformSettings();
+  return (
+    <>
+      {admin && maintenance.active && <div className="banner" data-tone="danger">Maintenance active : seuls les administrateurs de la plateforme ont accès au panel.</div>}
+      {announcement.active && announcement.text && <div className="banner" data-tone={announcement.tone}>{announcement.text}</div>}
+    </>
+  );
+}
+
+/** Bare layout (sidebar, mobile top bar, content), shared by the server pages, the server list and /admin. */
+export function Frame({ identity, server, sections: given, children }: FrameProps) {
+  const admin = isPlatformOwner(identity.discordId);
+  // Platform admins reach /admin from anywhere (the admin pages list their own sections). Everyone gets the tutorials.
+  const sections = [
+    ...given,
+    ...(admin && !given.some((s) => s.items.some((i) => i.href.startsWith("/admin"))) ? [{ label: "Plateforme", items: [{ href: "/admin", label: "Administration", icon: Crown }] }] : []),
+    { label: "Aide", items: [{ href: "/guides", label: "Tutoriels", icon: BookOpen }] }
+  ];
   const items = sections.flatMap((s) => s.items);
   return (
     <div>
@@ -151,7 +173,7 @@ export function Frame({ identity, server, sections, children }: FrameProps) {
 
         <div className="me">
           <Avatar url={identity.avatarUrl} name={identity.username} size={34} />
-          <div><b>{identity.username}</b><LogoutButton /></div>
+          <div><b>{identity.username}</b><span style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><LogoutButton /><FeedbackButton /></span></div>
         </div>
       </aside>
 
@@ -159,18 +181,23 @@ export function Frame({ identity, server, sections, children }: FrameProps) {
         <Link href="/servers" aria-label="Mes serveurs"><Mark size={26} /></Link>
         {items.map((it) => <Link key={it.href} href={it.href} data-active={Boolean(it.active)}>{it.label}</Link>)}
         {server && <Link href="/servers">Serveurs</Link>}
+        <FeedbackButton className="topbar-btn" />
       </div>
 
-      <main className="main"><div className="content">{children}</div></main>
+      <main className="main"><div className="content"><PlatformNotice admin={admin} />{children}</div></main>
     </div>
   );
 }
 
-/** Page heading: small kicker, big display title, optional description and right-hand actions. */
-export function PageHead({ kicker, title, children, actions }: { kicker: string; title: string; children?: React.ReactNode; actions?: React.ReactNode }) {
+/** Page heading: small kicker, big display title, optional description, tutorial link (`help`) and right-hand actions. */
+export function PageHead({ kicker, title, children, actions, help }: { kicker: string; title: string; children?: React.ReactNode; actions?: React.ReactNode; help?: string }) {
   return (
     <div className="head rise">
-      <div><div className="eyebrow">{kicker}</div><h1 className="h1">{title}</h1>{children && <p>{children}</p>}</div>
+      <div>
+        <div className="eyebrow">{kicker}</div>
+        <h1 className="h1">{title}</h1>
+        {(children || help) && <p>{children}{help && <>{children ? " " : ""}<Link href={help} className="linkish" style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><BookOpen size={12} />Tutoriel</Link></>}</p>}
+      </div>
       {actions && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{actions}</div>}
     </div>
   );

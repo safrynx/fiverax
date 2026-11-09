@@ -45,6 +45,7 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
       <PageHead
         kicker={server.name}
         title="Reports & boîte noire"
+        help="/guides/reports"
         actions={tab === "reports" && canReports ? <CaptureButton players={players} online={live.online} /> : undefined}
       >
         Chaque <code>/report</code> fait en jeu arrive ici avec le <b>replay des minutes d&apos;avant</b> : positions, tirs, morts, qui parlait. Les kicks et bans de l&apos;anticheat

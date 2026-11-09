@@ -6,7 +6,7 @@ import { db } from "./db";
  */
 
 /** The bot reports every 60 s; three missed beats and it is considered offline. */
-const HEARTBEAT_MAX_AGE_MS = 180_000;
+export const HEARTBEAT_MAX_AGE_MS = 180_000;
 
 const serverKey = (serverId: string, key: string) => `${serverId}:${key}`;
 

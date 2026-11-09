@@ -139,7 +139,7 @@ export function useServerPaths() {
 }
 
 /** Shared helper: turn an API error response into a readable French message. */
-export function describeApiError(data: { error?: string; discordStatus?: number; permission?: string; message?: string }, status: number): string {
+export function describeApiError(data: { error?: string; discordStatus?: number; permission?: string; message?: string; retryAfter?: number }, status: number): string {
   switch (data.error) {
     case "discord_role_update_failed":
       return data.discordStatus === 403
@@ -253,6 +253,38 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "unknown_response": return "Cette réponse n'existe plus.";
     case "unknown_kit": return "Ressource du kit inconnue.";
     case "not_enough_days": return "Pas assez de jours gagnés.";
+    case "maintenance": return data.message ? `Panel en maintenance : ${data.message}` : "Le panel est en maintenance : réessaie dans quelques minutes.";
+    case "server_suspended": return "Ce serveur est suspendu par l'administration Fiverax.";
+    case "registrations_closed": return "L'ajout de nouveaux serveurs est fermé pour le moment.";
+    case "ai_disabled": return "L'IA est désactivée sur la plateforme pour le moment.";
+    case "ai_quota_exceeded": return "Quota IA du jour atteint (serveur ou compte) : réessaie demain.";
+    case "too_many_requests": return "Trop de demandes en peu de temps : patiente quelques minutes.";
+    case "csrf": return "Requête refusée (elle ne venait pas du site). Recharge la page.";
+    case "scan_disabled": return "Le scan gratuit est momentanément désactivé.";
+    case "cannot_ban_self": return "Tu ne peux pas bannir ton propre compte.";
+    case "cannot_ban_admin": return "Un administrateur de la plateforme ne peut pas être banni (retire-le d'abord de PANEL_OWNER_IDS).";
+    case "not_banned": return "Ce compte n'est pas banni.";
+    case "unknown_session": return "Session introuvable.";
+    case "legacy_server": return "Le serveur principal (données d'origine) ne se supprime pas d'ici.";
+    case "beta_closed": return "Fiverax est en bêta privée : cette action est réservée aux partenaires pour le moment.";
+    case "invalid_request": return "Indique au moins le nom de ton serveur.";
+    case "invalid_link": return "Lien invalide : https://…, cfx.re/join/… ou discord.gg/…";
+    case "already_partner": return "Tu fais déjà partie de la bêta : recharge la page.";
+    case "request_refused_recently": return "Ta demande a été refusée il y a moins de 7 jours : réessaie plus tard.";
+    case "invalid_feedback": return "Décris le problème en quelques mots (10 caractères minimum).";
+    case "not_partner": return "Ce compte n'est pas partenaire.";
+    case "unknown_request": return "Cette demande a déjà été traitée.";
+    case "unknown_feedback": return "Retour introuvable.";
+    case "bot_not_in_guild": return "Le bot n'est pas sur ce serveur Discord : invite-le depuis Configuration.";
+    case "bot_forbidden": return "Discord refuse : le bot n'a pas la permission (il doit être Administrateur).";
+    case "discord_rate_limited": return `Discord limite les changements de profil : réessaie dans ${Math.max(1, Math.ceil((data.retryAfter ?? 60) / 60))} min.`;
+    case "discord_rejected": return data.message ? `Discord a refusé : ${data.message}` : "Discord a refusé ce changement (image ou texte non accepté).";
+    case "discord_unreachable": return "Discord ne répond pas : réessaie dans un instant.";
+    case "invalid_image": return "Image refusée : PNG, JPG, WebP ou GIF de 1,5 Mo au maximum.";
+    case "invalid_nick": return "Nom trop long (32 caractères au maximum).";
+    case "invalid_bio": return "Bio trop longue (190 caractères au maximum).";
+    case "nothing_to_change": return "Rien à changer.";
+    case "not_found": return "Introuvable.";
     default:
       if (data.error?.startsWith("tebex_")) return tebexErrorMessage(data.error, data.message);
       if (data.error?.startsWith("ai_http_")) return `Le service IA a refusé la demande (code ${data.error.slice(8)}).`;

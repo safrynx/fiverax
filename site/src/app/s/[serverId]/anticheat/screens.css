@@ -1,0 +1,29 @@
+/* "Écrans en direct" tab of the anticheat page (screen-wall.tsx). */
+
+.sw-wall { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.sw-wall[data-count="1"] { grid-template-columns: minmax(0, 960px); }
+.sw-tile { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: rgba(0, 0, 0, 0.25); display: grid; }
+.sw-tile header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+.sw-tile header b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-tile footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.sw-screen { aspect-ratio: 16 / 9; background: #050403; display: grid; place-items: center; overflow: hidden; }
+.sw-screen img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.sw-screen .screen-wait { padding: 16px; text-align: center; font-size: 13px; }
+
+.sw-search { position: relative; display: inline-flex; align-items: center; }
+.sw-search svg { position: absolute; left: 12px; color: var(--muted); pointer-events: none; }
+.sw-search .field { padding-left: 34px; min-width: 260px; }
+
+.sw-list { display: grid; }
+.sw-row { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(150px, 1fr) auto; gap: 12px; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.sw-row[data-hot] { background: linear-gradient(90deg, rgba(251, 113, 133, 0.07), transparent 70%); }
+.sw-who { min-width: 0; display: grid; }
+.sw-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-flags .tag { display: inline-flex; align-items: center; gap: 4px; }
+.sw-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.sw-actions .btn[data-on] { border-color: var(--accent); color: var(--text); }
+@media (max-width: 720px) {
+  .sw-row { grid-template-columns: 1fr; }
+  .sw-actions { justify-content: flex-start; }
+  .sw-search .field { min-width: 0; width: 100%; }
+}

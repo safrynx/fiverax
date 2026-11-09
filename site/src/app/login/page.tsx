@@ -14,7 +14,9 @@ const messages: Record<string, string> = {
   oauth_exchange: "Discord a refusé l'échange du code. Vérifie le client secret et l'URL de redirection.",
   oauth_identity: "Impossible de lire ton profil Discord.",
   forbidden: "Ton compte n'a accès à aucun serveur. Demande au propriétaire d'un serveur de t'ajouter.",
-  access_denied: "Connexion annulée."
+  access_denied: "Connexion annulée.",
+  banned: "Ce compte Discord a été suspendu de Fiverax. Pour contester, écris-nous depuis la page Contact.",
+  rate_limited: "Trop de tentatives de connexion depuis ta connexion internet : réessaie dans quelques minutes."
 };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; missing?: string }> }) {

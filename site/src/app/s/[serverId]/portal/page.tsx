@@ -26,7 +26,7 @@ export default async function PortalAdminPage({ params, searchParams }: { params
 
   return (
     <Shell user={user} server={server} active="portal">
-      <PageHead kicker="Réseau Fiverax" title="Portail joueurs">
+      <PageHead kicker="Réseau Fiverax" title="Portail joueurs" help="/guides/portail-annuaire">
         La page de ton serveur pour tes joueurs : annonces, événements, boutons, règlement, formulaires (candidatures, whitelist…) et giveaways avec récompense en jeu.
         Les joueurs s&apos;y connectent avec Discord et retrouvent leurs stats.
       </PageHead>

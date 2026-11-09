@@ -261,7 +261,11 @@ export function parseTroubleshoot(text: string, resources: Set<string>, players:
 }
 
 /** One turn of the conversation: the server's current state + the history → the AI's answer. */
-export async function troubleshoot(serverId: string, req: TroubleshootRequest, opts: { files: boolean; allowed?: AllowedKinds } = { files: false }): Promise<TroubleshootReply> {
+export async function troubleshoot(
+  serverId: string,
+  req: TroubleshootRequest,
+  opts: { files: boolean; allowed?: AllowedKinds; actorId?: string | null } = { files: false }
+): Promise<TroubleshootReply> {
   if (!aiConfigured()) throw new TroubleshootError("ai_not_configured");
   const [live, lines, scan, opened, listed] = await Promise.all([
     getLiveState(serverId), getConsole(serverId, 0, 600), scanDigest(serverId),
@@ -286,7 +290,10 @@ export async function troubleshoot(serverId: string, req: TroubleshootRequest, o
 
   let reply: TroubleshootReply | null;
   try {
-    const text = await chatJson(SYSTEM + (opts.files ? FILES_ON : FILES_OFF) + allowedNote(opts.allowed), user, { model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 4000, temperature: 0.2, timeoutMs: 55_000 });
+    const text = await chatJson(SYSTEM + (opts.files ? FILES_ON : FILES_OFF) + allowedNote(opts.allowed), user, {
+      quota: { serverId, userId: opts.actorId ?? null, kind: "assistant" },
+      model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 4000, temperature: 0.2, timeoutMs: 55_000
+    });
     reply = parseTroubleshoot(text, new Set(live.resources.map((r) => r.name)), new Map(live.players.map((p) => [p.id, p.name])), opts.allowed);
     if (reply && !opts.files) reply = { ...reply, read: [], edits: [] };
   } catch (error) {

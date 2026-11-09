@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bug, Cpu, EyeOff, FileWarning, Lock, Network, ScanSearch, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import { Bug, Check, Cpu, Eye, EyeOff, FileWarning, Lock, Network, ScanSearch, ShieldCheck, Skull, Sparkles, TriangleAlert, Wrench, X } from "lucide-react";
 import { scanStats } from "@/lib/external-scan";
 import { CtaLink } from "../annuaire/track";
 import { jsonLd, OG_BASE, ORGANIZATION_ID, SITE_URL } from "@/lib/site";
@@ -19,7 +19,7 @@ const structuredData = {
   operatingSystem: "Web",
   inLanguage: "fr",
   isAccessibleForFree: true,
-  description: "Colle ton lien cfx.re/join : score de sécurité, IP des joueurs exposées, ScriptHook, artifacts en retard, anticheat, OneSync. Gratuit et sans compte.",
+  description: "Colle ton lien cfx.re/join : note de sécurité de A+ à F, IP et comptes des joueurs exposés, ressources ciblées par les cheats, leaks, ScriptHook, artifacts, anticheat, OneSync. Gratuit et sans compte.",
   offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
   provider: { "@id": ORGANIZATION_ID }
 };
@@ -28,19 +28,21 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: { absolute: "Scan de sécurité gratuit pour serveur FiveM · Fiverax" },
-  description: "Colle ton lien cfx.re/join : score de sécurité en 10 s, IP de joueurs exposées, ScriptHook, artifacts obsolètes, OneSync. Gratuit, sans compte.",
+  description: "Colle ton lien cfx.re/join : note de sécurité de A+ à F en 10 s, IP des joueurs exposées, ressources ciblées par les cheats, leaks, ScriptHook, artifacts. Gratuit, sans compte.",
   alternates: { canonical: "/scan" },
   openGraph: { ...OG_BASE, url: "/scan", title: "Scan de sécurité gratuit · serveurs FiveM", description: "Le score de sécurité de ton serveur FiveM en 10 secondes, sans rien installer." },
   twitter: { card: "summary_large_image" }
 };
 
 const quick = [
-  { icon: EyeOff, title: "IP des joueurs exposées", text: "Si /players.json publie l'adresse de tes joueurs, n'importe qui peut les attaquer (DDoS)." },
+  { icon: EyeOff, title: "IP et comptes des joueurs", text: "Si /players.json publie l'adresse IP ou le Discord de tes joueurs, n'importe qui peut les attaquer (DDoS) ou les retrouver." },
+  { icon: Skull, title: "Ressources ciblées par les cheats", text: "Les anciennes ressources ESX / vRP dont les menus de triche déclenchent la paie, la prison ou les menottes en un clic." },
+  { icon: TriangleAlert, title: "Leaks et exécution de code", text: "Ressources « leak / nulled / cracked » (backdoors) et runcode, qui exécute n'importe quel code sur le serveur." },
   { icon: Bug, title: "ScriptHook et fichiers modifiés", text: "sv_scriptHookAllowed et sv_pureLevel : ce qui laisse entrer les menus de triche." },
   { icon: Cpu, title: "Artifacts en retard", text: "Ta version de FXServer comparée aux builds recommandés et aux failles connues de Cfx.re." },
-  { icon: ShieldCheck, title: "Anticheat et OneSync", text: "Un anticheat visible ? OneSync actif ? Sans lui, le serveur ne voit pas ce que font les cheaters." },
-  { icon: FileWarning, title: "Librairies abandonnées", text: "mysql-async, ghmattimysql, EssentialMode : lentes, plus maintenues, parfois avec des failles." },
-  { icon: Network, title: "Configuration", text: "Build du jeu fixé, nombre de ressources, informations publiques du serveur." }
+  { icon: ShieldCheck, title: "Anticheat et OneSync", text: "Un anticheat visible ? OneSync actif, et pas en Legacy ? Sans lui, le serveur ne voit pas ce que font les cheaters." },
+  { icon: FileWarning, title: "Librairies et frameworks", text: "mysql-async, EssentialMode, deux frameworks ou deux librairies SQL démarrés ensemble : lenteurs, duplications, failles." },
+  { icon: Network, title: "Configuration", text: "Build du jeu fixé, nombre de ressources, version de txAdmin, tout ce que ton serveur publie." }
 ];
 
 const deep = [
@@ -51,6 +53,14 @@ const deep = [
   "Performance : boucles Wait(0), requêtes SQL dans des boucles, fichiers streamés trop lourds"
 ];
 
+const sample: [boolean, string][] = [
+  [true, "37 joueurs sur 52 avec leur adresse IP lisible publiquement"],
+  [true, "esx_truckerjob et esx_slotmachine : paie et gains déclenchables par les menus de triche"],
+  [true, "Ressource « vehicles_leak » : premier vecteur de backdoors"],
+  [true, "sv_pureLevel non défini : archives du jeu modifiées acceptées"],
+  [false, "ScriptHook interdit, OneSync actif, FXServer à jour"]
+];
+
 export default async function ScanPage() {
   const stats = await scanStats().catch(() => ({ scans: 0, average: null }));
   return (
@@ -59,12 +69,13 @@ export default async function ScanPage() {
       <section className="gx-hero">
         <div className="lp-chip rise"><b>Gratuit</b>Sans compte, sans rien installer</div>
         <h1 className="rise rise-1">Ton serveur FiveM est-il <span className="gold">vraiment protégé ?</span></h1>
-        <p className="rise rise-2">Colle le lien de ton serveur : Fiverax lit ce que tout le monde peut voir de lui et te donne un score de sécurité en quelques secondes, avec ce qu&apos;il faut corriger en priorité.</p>
+        <p className="rise rise-2">Colle le lien de ton serveur : Fiverax lit ce que n&apos;importe quel cheater peut voir de lui, passe 18 vérifications et te donne une note de A+ à F en quelques secondes, avec ce qu&apos;il faut corriger en priorité.</p>
         <div className="rise rise-3" style={{ marginTop: 26, maxWidth: 680 }}><ScanForm /></div>
         {stats.scans >= MIN_SCANS_SHOWN && (
           <div className="dir-facts rise rise-4">
             <span><b>{stats.scans}</b>serveurs scannés ces 30 jours</span>
             {stats.average !== null && <span><b>{stats.average}/100</b>score moyen</span>}
+            <span><b>18</b>vérifications par scan</span>
           </div>
         )}
       </section>
@@ -80,6 +91,17 @@ export default async function ScanPage() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="dir-section">
+        <header><h2><Eye size={18} style={{ verticalAlign: -3, marginRight: 8 }} />Ce qu&apos;un cheater voit de ton serveur</h2></header>
+        <div className="gx-sample">
+          <div className="gx-grade" style={{ ["--tier" as string]: "var(--bad)" }}>E</div>
+          <ul>
+            {sample.map(([bad, text]) => <li key={text}>{bad ? <X size={15} color="var(--bad)" /> : <Check size={15} color="var(--ok)" />}{text}</li>)}
+          </ul>
+        </div>
+        <p className="muted" style={{ fontSize: 13 }}>Exemple de rapport. Le tien liste aussi chaque correctif, le bloc <code>server.cfg</code> à coller et un plan d&apos;action classé par priorité.</p>
       </section>
 
       <section className="dir-cta" style={{ alignItems: "start" }}>

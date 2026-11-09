@@ -2,8 +2,8 @@ import { createHmac, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { db } from "./db";
 import {
-  analyzeExternal, isPublicIp, parseTarget, targetLabel,
-  type ExternalData, type ExternalReport, type ScanTarget
+  analyzeExternal, isPublicIp, parseTarget, percentileOf, SCAN_STEPS, targetLabel,
+  type ExternalData, type ExternalReport, type ScanStepKey, type ScanTarget
 } from "./external-scan-shared";
 import { checkArtifacts } from "./server-audit";
 
@@ -15,13 +15,17 @@ import { checkArtifacts } from "./server-audit";
  *   resolves to must be public (lib/external-scan-shared isPublicIp), and the request goes to that IP, so a DNS answer
  *   cannot change between the check and the request; ports under 1024 are refused;
  * - GET only, on three fixed paths, no redirect followed, 4 s timeout, 1.5 MB at most per answer;
- * - 8 scans per hour per network address (kept as a keyed hash), and the same server is not fetched again for 10 min.
+ * - 8 scans per hour per network address (kept as a keyed hash), and the same server is not fetched again for 10 min
+ *   (1 min for a logged-in visitor who asks to scan again after a fix).
  * Nothing about the players is stored: they are counted, then dropped. Results are kept 30 days.
+ * Each step is reported as it ends (`onStep`), so /api/scan can stream the progress to the visitor.
  */
 
 export class ScanError extends Error {}
 
 const CACHE_MS = 10 * 60_000;
+/** A logged-in visitor may scan the same server again after this (to check a fix). */
+const FORCE_MS = 60_000;
 const PER_HOUR = 8;
 const GLOBAL_PER_HOUR = 400;
 const KEEP_DAYS = 30;
@@ -101,10 +105,17 @@ async function safeBase(host: string, port: number): Promise<string> {
   return `http://${address.includes(":") ? `[${address}]` : address}:${port}`;
 }
 
+type Step = (key: ScanStepKey) => void;
+
 /** The public data of a FiveM server from its base URL (already checked): info.json, players.json, dynamic.json. */
-async function fromBase(base: string): Promise<ExternalData> {
-  const [info, list, dyn] = await Promise.all([getJson(`${base}/info.json`), getJson(`${base}/players.json`), getJson(`${base}/dynamic.json`)]);
+async function fromBase(base: string, step: Step): Promise<ExternalData> {
+  const [info, list, dyn] = await Promise.all([
+    getJson(`${base}/info.json`).then((v) => (step("info"), v)),
+    getJson(`${base}/players.json`).then((v) => (step("players"), v)),
+    getJson(`${base}/dynamic.json`)
+  ]);
   if (!info && !dyn) throw new ScanError("unreachable");
+  step("resources");
   const i = record(info);
   const d = record(dyn);
   const v = vars(i.vars);
@@ -122,8 +133,10 @@ async function fromBase(base: string): Promise<ExternalData> {
   };
 }
 
-async function fromAddress(host: string, port: number): Promise<ExternalData> {
-  return fromBase(await safeBase(host, port));
+async function fromAddress(host: string, port: number, step: Step): Promise<ExternalData> {
+  const base = await safeBase(host, port);
+  step("resolve");
+  return fromBase(base, step);
 }
 
 /** Pure: a server URL given by Cfx.re ("http://1.2.3.4:30120/", "https://x-y.users.cfx.re/") → host and port to check, or a proxy base. */
@@ -184,18 +197,24 @@ async function fromServerList(code: string): Promise<ExternalData | null> {
 }
 
 /** A cfx.re/join code: resolved like the FiveM client does, then read on the server itself; the official list as a fallback. */
-async function fromCfx(code: string): Promise<ExternalData> {
+async function fromCfx(code: string, step: Step): Promise<ExternalData> {
   const base = await resolveCfx(code);
+  step("resolve");
+  const listedData = async () => {
+    const listed = await fromServerList(code);
+    if (listed) for (const k of ["info", "players", "resources"] as const) step(k);
+    return listed;
+  };
   if (base) {
     try {
-      return await fromBase(base);
+      return await fromBase(base, step);
     } catch (error) {
-      const listed = await fromServerList(code);
+      const listed = await listedData();
       if (listed) return listed;
       throw error;
     }
   }
-  const listed = await fromServerList(code);
+  const listed = await listedData();
   if (!listed) throw new ScanError("cfx_unresolved");
   return listed;
 }
@@ -218,22 +237,32 @@ export async function getPublicScan(token: string): Promise<PublicScan | null> {
 
 /**
  * Scan a server (or answer the scan of the same server made less than 10 min ago).
- * `fetcher` replaces the network in tests.
+ * `fetcher` replaces the network in tests; `onStep` hears each step as it ends; `force` (logged-in visitors) scans
+ * again a server scanned more than a minute ago.
  */
 export async function runPublicScan(
   input: string,
   who: { ipHash: string | null; discordId: string | null },
-  opts: { now?: Date; fetcher?: (t: ScanTarget) => Promise<ExternalData> } = {}
+  opts: { now?: Date; fetcher?: (t: ScanTarget) => Promise<ExternalData>; onStep?: (key: ScanStepKey) => void; force?: boolean } = {}
 ): Promise<PublicScan> {
   const now = opts.now ?? new Date();
+  const done = new Set<ScanStepKey>();
+  const step: Step = (key) => {
+    if (done.has(key)) return;
+    done.add(key);
+    opts.onStep?.(key);
+  };
   const target = parseTarget(input);
   if (!target) throw new ScanError("invalid_target");
 
   const cached = await db.get<Row>(
     "SELECT token, target, name, score, critical, high, medium, info, report_json, created_at, discord_id FROM public_scans WHERE target = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1",
-    [targetLabel(target), iso(new Date(now.getTime() - CACHE_MS))]
+    [targetLabel(target), iso(new Date(now.getTime() - (opts.force && who.discordId ? FORCE_MS : CACHE_MS)))]
   );
-  if (cached) return toScan(cached);
+  if (cached) {
+    for (const s of SCAN_STEPS) step(s.key);
+    return toScan(cached);
+  }
 
   const hourAgo = iso(new Date(now.getTime() - 3600_000));
   const [mine, all] = await Promise.all([
@@ -242,10 +271,16 @@ export async function runPublicScan(
   ]);
   if (Number(mine?.n ?? 0) >= PER_HOUR || Number(all?.n ?? 0) >= GLOBAL_PER_HOUR) throw new ScanError("rate_limited");
 
-  const fetcher = opts.fetcher ?? ((t: ScanTarget) => (t.kind === "cfx" ? fromCfx(t.code) : fromAddress(t.host, t.port)));
-  const data = await fetcher(target);
+  let data: ExternalData;
+  if (opts.fetcher) {
+    data = await opts.fetcher(target);
+    for (const k of ["resolve", "info", "players", "resources"] as const) step(k);
+  } else {
+    data = await (target.kind === "cfx" ? fromCfx(target.code, step) : fromAddress(target.host, target.port, step));
+  }
   const build = Number(/v1\.0\.0\.(\d+)/.exec(data.server ?? data.vars?.version ?? "")?.[1]) || null;
   const artifacts = opts.fetcher ? null : build ? await checkArtifacts(data.server ?? data.vars.version) : null;
+  step("artifacts");
   const report = analyzeExternal(data, artifacts);
   const counts = { critical: 0, high: 0, medium: 0, info: 0 };
   for (const f of report.findings) counts[f.severity]++;
@@ -258,7 +293,38 @@ export async function runPublicScan(
     },
     { sql: "DELETE FROM public_scans WHERE created_at < ?", args: [iso(new Date(now.getTime() - KEEP_DAYS * 86_400_000))] }
   ]);
+  step("analysis");
   return { token, target: targetLabel(target), name: report.facts.name, score: report.score, counts, report, createdAt: iso(now), discordId: who.discordId };
+}
+
+export type ScanContext = {
+  /** "Better than N % of the servers scanned these 30 days" (latest scan of each server), null under 20 servers. */
+  percentile: number | null;
+  servers: number;
+  /** The scan of the same server just before this one (progress after fixes). */
+  previous: { token: string; score: number; at: string } | null;
+};
+
+/** Where a report stands: among the other servers, and against the previous scan of the same server. */
+export async function scanContext(scan: Pick<PublicScan, "score" | "target" | "createdAt">, now = new Date()): Promise<ScanContext> {
+  const since = iso(new Date(now.getTime() - KEEP_DAYS * 86_400_000));
+  const [dist, prev] = await Promise.all([
+    db.get<{ n: number; below: number | null }>(
+      `SELECT COUNT(*) AS n, SUM(CASE WHEN score < ? THEN 1 ELSE 0 END) AS below FROM public_scans p
+       WHERE created_at > ? AND created_at = (SELECT MAX(created_at) FROM public_scans q WHERE q.target = p.target)`,
+      [scan.score, since]
+    ),
+    db.get<{ token: string; score: number; created_at: string }>(
+      "SELECT token, score, created_at FROM public_scans WHERE target = ? AND created_at < ? ORDER BY created_at DESC LIMIT 1",
+      [scan.target, scan.createdAt]
+    )
+  ]);
+  const servers = Number(dist?.n ?? 0);
+  return {
+    percentile: percentileOf(Number(dist?.below ?? 0), servers),
+    servers,
+    previous: prev ? { token: prev.token, score: Number(prev.score), at: prev.created_at } : null
+  };
 }
 
 /** Numbers for the landing page: scans of the last 30 days and their average score. */

@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
-import { sessionCookieName } from "@/lib/session";
+import { NextRequest, NextResponse } from "next/server";
+import { decodeSession, revokeSession, sessionCookieName } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+/** POST /api/auth/logout — ends the session for good (its row is revoked: a copied cookie stops working too). */
+export async function POST(req: NextRequest) {
+  const payload = decodeSession(req.cookies.get(sessionCookieName)?.value);
+  if (payload) await revokeSession(payload.nonce, "logout").catch((error) => console.error("[auth] logout:", error instanceof Error ? error.message : error));
   const res = NextResponse.json({ ok: true });
   res.cookies.set(sessionCookieName, "", {
     httpOnly: true,

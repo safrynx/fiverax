@@ -17,7 +17,17 @@ type Props = {
   hasFivemToken: boolean;
   appUrl: string;
   agent: { linked: boolean; online: boolean; version: string | null };
+  /** Version of the agent the panel hands out (download button); the server's one is compared to it. */
+  latestAgent: string;
   inviteUrl: string | null;
+};
+
+/** Pure: is version a older than b ("3.6.0" < "3.8.0")? */
+const older = (a: string, b: string) => {
+  const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0);
+  return false;
 };
 
 /** The server's identity (name, Discord guild, time zone) and the token of its FiveM agent. */
@@ -130,15 +140,21 @@ export default function ServerSettings(props: Props) {
         <header style={{ paddingBottom: 12, borderBottom: "1px solid var(--line-2)" }}>
           <h2 className="h2">Agent FiveM</h2>
           <p className="muted" style={{ margin: "6px 0 0" }}>
-            La ressource <code>fiverax_agent</code> (dossier <code>fivem/</code> du projet) relie le serveur FiveM au panel : joueurs en direct, kick, messages, annonces, ressources et console.
-            Elle appelle le panel toutes les quelques secondes avec le token de ce serveur : aucun port à ouvrir.
+            La ressource <code>fiverax_agent</code> relie le serveur FiveM au panel : joueurs en direct, carte, anticheat, bans, écrans des joueurs, console et ressources.
+            Elle appelle le panel toutes les quelques secondes avec le token de ce serveur : aucun port à ouvrir. <a href="/guides/agent-fivem" className="linkish">Tutoriel d&apos;installation</a>
           </p>
         </header>
         <p style={{ marginTop: 18 }}>
           <span className="tag" data-tone={props.hasFivemToken ? "up" : "warn"}>{props.hasFivemToken ? "Token configuré" : "Aucun token"}</span>{" "}
           {props.hasFivemToken && <span className="tag" data-tone={agentTag.tone}>{agentTag.label}</span>}
         </p>
-        <button className="btn" disabled={busy} onClick={rotate}>{props.hasFivemToken ? "Générer un nouveau token" : "Générer le token"}</button>
+        {props.agent.version && older(props.agent.version, props.latestAgent) && (
+          <div className="banner"><b>Mise à jour disponible :</b> ton serveur utilise l&apos;agent {props.agent.version}, la version {props.latestAgent} apporte les dernières protections. Télécharge-la ci-dessous, remplace le dossier <code>fiverax_agent</code>, puis <code>ensure fiverax_agent</code>.</div>
+        )}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <a href="/api/agent/download" className="btn primary" download>Télécharger l&apos;agent ({props.latestAgent})</a>
+          <button className="btn" disabled={busy} onClick={rotate}>{props.hasFivemToken ? "Générer un nouveau token" : "Générer le token"}</button>
+        </div>
         {token && (
           <div className="banner" style={{ marginTop: 16 }}>
             <b>À copier maintenant : ce token ne sera plus jamais affiché.</b> Ajoute ces lignes au <code>server.cfg</code> du serveur FiveM :

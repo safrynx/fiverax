@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
       return NextResponse.json({ ok: true });
     }
     if (action === "explain") {
-      return NextResponse.json(await explainFinding(server.id, Number(body.scanId), Number(body.index)));
+      return NextResponse.json(await explainFinding(server.id, Number(body.scanId), Number(body.index), user.discordId));
     }
     return NextResponse.json({ error: "validation" }, { status: 400 });
   } catch (error) {

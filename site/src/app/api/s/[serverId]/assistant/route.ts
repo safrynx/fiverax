@@ -64,7 +64,7 @@ export async function POST(req: NextRequest, { params }: ServerRouteContext) {
     if (!parsed.success) return NextResponse.json({ error: "validation", issues: parsed.error.issues.map((i) => i.path.join(".")) }, { status: 400 });
     if (parsed.data.messages.at(-1)?.role !== "user") return NextResponse.json({ error: "validation" }, { status: 400 });
     const files = can(user, "server_files");
-    const reply = await troubleshoot(server.id, parsed.data, { files, allowed: allowedSet(user) });
+    const reply = await troubleshoot(server.id, parsed.data, { files, allowed: allowedSet(user), actorId: user.discordId });
 
     const reads: { commandId: number; resource: string; paths?: string[] }[] = [];
     const rejected: string[] = [];

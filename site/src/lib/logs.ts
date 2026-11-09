@@ -18,7 +18,7 @@ export const LOG_GROUPS: Record<string, { label: string; actions: string[] }> = 
   shop: { label: "Boutique", actions: ["shop_config", "shop_webhook_rotate", "shop_payment_note", "shop_payment_status", "shop_manual_payment", "shop_package", "shop_checkout", "shop_coupon_create", "shop_coupon_delete", "shop_giftcard_create", "shop_giftcard_void", "shop_giftcard_topup", "shop_ban"] },
   directory: { label: "Annuaire", actions: ["directory_listing", "directory_publish", "directory_unpublish", "directory_reply", "directory_featured", "directory_unfeatured"] },
   store: { label: "Store Creator", actions: ["store_publish", "store_unpublish", "store_slug", "store_restore", "store_ai"] },
-  server: { label: "Serveur", actions: ["server_create","server_update", "owner_add", "owner_remove", "fivem_token_rotate"] }
+  server: { label: "Serveur", actions: ["server_create","server_update", "owner_add", "owner_remove", "fivem_token_rotate", "server_suspended", "server_unsuspended"] }
 };
 
 const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
@@ -46,6 +46,8 @@ const ACTION_LABELS: Record<string, { label: string; tone: LogTone }> = {
   owner_add: { label: "Propriétaire +", tone: "info" },
   owner_remove: { label: "Propriétaire −", tone: "danger" },
   fivem_token_rotate: { label: "Token FiveM", tone: "warn" },
+  server_suspended: { label: "Suspendu par Fiverax", tone: "danger" },
+  server_unsuspended: { label: "Rétabli par Fiverax", tone: "up" },
   player_kick: { label: "Kick", tone: "danger" },
   player_message: { label: "Message joueur", tone: "neutral" },
   announce: { label: "Annonce", tone: "info" },
@@ -158,6 +160,10 @@ function describe(action: string, d: Record<string, unknown>): string {
       return String(d.label ?? d.discordId ?? "");
     case "fivem_token_rotate":
       return "Nouveau token de l'agent FiveM (l'ancien ne marche plus)";
+    case "server_suspended":
+      return `Panel, agent FiveM, bot et pages publiques arrêtés par l'administration Fiverax${reason}`;
+    case "server_unsuspended":
+      return "Tout fonctionne de nouveau";
     case "player_kick":
       return `${d.player ?? `#${d.target}`}${reason}`;
     case "player_message":

@@ -2,16 +2,18 @@ import type { Client, Guild } from "discord.js";
 import { endLockdown, getAntiraidConfig, report, startLockdown, type Action } from "./antiraid";
 import { sitePost } from "./api";
 import { restoreBackup, snapshot, type Backup } from "./backup";
+import { auditGuild } from "./discord-audit";
 
 /**
- * Actions asked from the panel (lockdown, unlock, backup, restore), fetched every 15 s, and the automatic backups
- * (every N hours, setting "backupEveryHours").
+ * Actions asked from the panel (lockdown, unlock, backup, restore, Discord audit), fetched every 15 s, the automatic
+ * backups (every N hours, setting "backupEveryHours") and the daily Discord security audit.
  */
 
 const POLL_MS = 15_000;
 const BACKUP_CHECK_MS = 30 * 60_000;
+const AUDIT_EVERY_MS = 24 * 3600_000;
 
-type BotAction = { id: number; guildId: string; kind: "lockdown" | "unlock" | "backup" | "restore"; payload: Record<string, unknown> };
+type BotAction = { id: number; guildId: string; kind: "lockdown" | "unlock" | "backup" | "restore" | "audit"; payload: Record<string, unknown> };
 
 export async function backupGuild(guild: Guild, reason: string): Promise<number | null> {
   // Make sure every member is cached (their roles are part of the backup).
@@ -43,6 +45,10 @@ async function run(client: Client, action: BotAction): Promise<{ ok: boolean; me
     case "backup": {
       const id = await backupGuild(guild, "manuelle");
       return id ? { ok: true, message: `Sauvegarde #${id}` } : { ok: false, message: "Le panel n'a pas reçu la sauvegarde" };
+    }
+    case "audit": {
+      const audit = await auditGuild(guild);
+      return audit ? { ok: true, message: `Audit #${audit.id} : ${audit.score}/100` } : { ok: false, message: "Le panel n'a pas reçu l'audit" };
     }
     case "restore": {
       const got = await sitePost<{ data?: Backup }>("backup", { op: "get", guildId: guild.id, id: Number(action.payload.backupId) }, 2);
@@ -91,6 +97,14 @@ export function setupActions(client: Client, watched: (guildId: string) => boole
       if (last.at && Date.now() - new Date(last.at).getTime() < hours * 3600_000) continue;
       const id = await backupGuild(guild, "automatique");
       if (id) console.log(`[backup] ${guild.name}: #${id}`);
+    }
+    // Daily Discord security audit of every watched guild.
+    for (const guild of client.guilds.cache.values()) {
+      if (!watched(guild.id)) continue;
+      const last = await sitePost<{ at?: string | null }>("discord-audit", { op: "last", guildId: guild.id }, 1);
+      if (!last || (last.at && Date.now() - new Date(last.at).getTime() < AUDIT_EVERY_MS)) continue;
+      const audit = await auditGuild(guild).catch(() => null);
+      if (audit) console.log(`[audit] ${guild.name}: ${audit.score}/100`);
     }
   };
   setTimeout(() => void autoBackups(), 60_000);

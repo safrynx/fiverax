@@ -112,7 +112,7 @@ async function siteBySlug(slug: string): Promise<{ server: Server; row: SiteRow 
   const row = await db.get<SiteRow>(`SELECT ${SITE_COLUMNS} FROM portal_sites WHERE slug = ?`, [slug]);
   if (!row) return null;
   const server = await getServer(row.server_id);
-  return server ? { server, row } : null;
+  return server && !server.suspended ? { server, row } : null;
 }
 
 async function viewerStats(serverId: string, discordId: string, now: Date): Promise<ViewerStats> {

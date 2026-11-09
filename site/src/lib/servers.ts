@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { db, stmt } from "./db";
+import { getPlatformSettings } from "./platform";
 
 /**
  * Servers (tenants). One server = one Discord guild + (optionally) one FiveM server.
@@ -26,6 +27,12 @@ export type Server = {
   iconUrl: string | null;
   hasFivemToken: boolean;
   createdAt: string;
+  /**
+   * Suspended by a platform admin (/admin): its panel is closed to everyone but the platform admins, its FiveM agent
+   * is refused, the bot stops watching its guild and its public pages (directory, portal, store, badge) disappear.
+   */
+  suspended: boolean;
+  suspendedReason: string | null;
 };
 
 type ServerRow = {
@@ -37,9 +44,11 @@ type ServerRow = {
   icon_url: string | null;
   fivem_token_hash: string | null;
   created_at: string;
+  suspended_at: string | null;
+  suspended_reason: string | null;
 };
 
-const COLUMNS = "id, name, guild_id, timezone, review_hour, icon_url, fivem_token_hash, created_at";
+const COLUMNS = "id, name, guild_id, timezone, review_hour, icon_url, fivem_token_hash, created_at, suspended_at, suspended_reason";
 
 const toServer = (r: ServerRow): Server => ({
   id: r.id,
@@ -49,7 +58,9 @@ const toServer = (r: ServerRow): Server => ({
   reviewHour: r.review_hour,
   iconUrl: r.icon_url,
   hasFivemToken: Boolean(r.fivem_token_hash),
-  createdAt: r.created_at
+  createdAt: r.created_at,
+  suspended: Boolean(r.suspended_at),
+  suspendedReason: r.suspended_reason
 });
 
 export async function listServers(): Promise<Server[]> {
@@ -65,6 +76,12 @@ export async function getServer(id: string): Promise<Server | null> {
 export async function getServerByGuild(guildId: string): Promise<Server | null> {
   const row = await db.get<ServerRow>(`SELECT ${COLUMNS} FROM servers WHERE guild_id = ?`, [guildId]);
   return row ? toServer(row) : null;
+}
+
+/** The server the bot reports about, or null when unknown or suspended (the bot must not act for it). */
+export async function activeServerByGuild(guildId: string): Promise<Server | null> {
+  const server = await getServerByGuild(guildId);
+  return server && !server.suspended ? server : null;
 }
 
 /** Community time zone of a server: its own setting, else APP_TIMEZONE, else Europe/Paris. */
@@ -125,24 +142,35 @@ export async function managesGuild(discordId: string, guildId: string): Promise<
 
 export const maxServersPerUser = () => Number(process.env.MAX_SERVERS_PER_USER ?? 5);
 
+/** The limit in force: the platform setting when an admin set one, else MAX_SERVERS_PER_USER. */
+export async function effectiveMaxServersPerUser(): Promise<number> {
+  return (await getPlatformSettings()).maxServersPerUser ?? maxServersPerUser();
+}
+
 export async function countServersCreatedBy(discordId: string): Promise<number> {
   return (await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM servers WHERE created_by = ?", [discordId]))?.n ?? 0;
 }
 
-export type CreateForResult = CreateServerResult | { ok: false; error: "guild_required" | "guild_not_managed" | "too_many_servers" };
+export type CreateForResult = CreateServerResult | { ok: false; error: "guild_required" | "guild_not_managed" | "too_many_servers" | "registrations_closed" | "beta_closed" };
 
 /**
- * Self-service creation: anyone may register a guild they manage, up to the per-user limit.
- * Platform owners may register any guild (or none) without limit.
+ * Self-service creation: anyone may register a guild they manage, up to the per-user limit, while registrations are
+ * open (platform setting) — during the private beta, partners only (lib/beta.ts). Platform owners may register any
+ * guild (or none) without limit.
  */
 export async function createServerFor(
   actor: { discordId: string; platformOwner: boolean },
   input: { name: string; guildId: string | null }
 ): Promise<CreateForResult> {
   if (!actor.platformOwner) {
+    const settings = await getPlatformSettings();
+    if (settings.beta.active && !(await db.get("SELECT 1 AS x FROM platform_users WHERE discord_id = ? AND partner_at IS NOT NULL", [actor.discordId]))) {
+      return { ok: false, error: "beta_closed" };
+    }
+    if (!settings.registrationsOpen) return { ok: false, error: "registrations_closed" };
     if (!input.guildId) return { ok: false, error: "guild_required" };
     if (!(await managesGuild(actor.discordId, input.guildId))) return { ok: false, error: "guild_not_managed" };
-    if ((await countServersCreatedBy(actor.discordId)) >= maxServersPerUser()) return { ok: false, error: "too_many_servers" };
+    if ((await countServersCreatedBy(actor.discordId)) >= (await effectiveMaxServersPerUser())) return { ok: false, error: "too_many_servers" };
   }
   const icon = input.guildId
     ? (await db.get<{ icon_url: string | null }>("SELECT icon_url FROM user_guilds WHERE guild_id = ? AND icon_url IS NOT NULL LIMIT 1", [input.guildId]))?.icon_url
@@ -156,14 +184,15 @@ const SERVER_TABLES = [
   "warnings", "playtime_snapshots", "playtime_totals", "discord_roles", "grade_roles", "panel_access", "warn_roles",
   "weekly_reviews", "server_owners", "member_roles", "fivem_state", "fivem_commands", "players", "player_sessions", "fivem_console",
   "security_settings", "bans", "ac_detections", "ac_screenshots", "security_incidents",
-  "screen_frames", "bot_actions", "discord_backups",
+  "screen_frames", "bot_actions", "discord_backups", "discord_audits",
   "tebex_settings", "tebex_events", "tebex_disabled_packages", "store_sites", "store_versions",
   "studio_creations", "studio_versions", "audit_scans", "audit_settings",
   "network_members", "network_ban_keys", "library_items", "library_reactions",
   "directory_listings", "directory_reviews", "directory_featured", "directory_stats",
   "player_reports", "ban_appeals", "directory_votes", "directory_vote_settings",
   "protection_badges", "protection_plans", "referral_codes", "referral_ledger",
-  "portal_sites", "portal_form_responses", "portal_giveaways", "portal_giveaway_entries", "portal_giveaway_winners"
+  "portal_sites", "portal_form_responses", "portal_giveaways", "portal_giveaway_entries", "portal_giveaway_winners",
+  "bot_profiles"
 ];
 
 /** Delete a server and every piece of its data, atomically. Irreversible. */
@@ -245,14 +274,27 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 /**
- * The server a FiveM agent token belongs to, or null.
+ * The server a FiveM agent token belongs to, or null (also for a suspended server: its agent is refused).
  * The old shared FIVEM_AGENT_TOKEN (env) still works and maps to the legacy server.
  */
 export async function serverForFivemToken(token: string | null): Promise<Server | null> {
   if (!token) return null;
   const legacy = process.env.FIVEM_AGENT_TOKEN;
-  if (legacy && sameSecret(token, legacy)) return getServer(LEGACY_SERVER_ID);
+  if (legacy && sameSecret(token, legacy)) {
+    const server = await getServer(LEGACY_SERVER_ID);
+    return server && !server.suspended ? server : null;
+  }
   // A sha256 lookup: comparing hashes leaks nothing useful about the token itself.
   const row = await db.get<ServerRow>(`SELECT ${COLUMNS} FROM servers WHERE fivem_token_hash = ?`, [hashToken(token)]);
-  return row ? toServer(row) : null;
+  return row && !row.suspended_at ? toServer(row) : null;
+}
+
+// ---- suspension (platform admins) ----
+
+/** Suspend or restore a server. Returns false when the server does not exist. Logged by the caller (lib/admin.ts). */
+export async function setServerSuspended(id: string, suspended: { reason: string; by: string } | null, now = new Date()): Promise<boolean> {
+  const { changes } = suspended
+    ? await db.run("UPDATE servers SET suspended_at = ?, suspended_reason = ?, suspended_by = ? WHERE id = ?", [now.toISOString(), suspended.reason.slice(0, 300), suspended.by, id])
+    : await db.run("UPDATE servers SET suspended_at = NULL, suspended_reason = NULL, suspended_by = NULL WHERE id = ?", [id]);
+  return changes > 0;
 }

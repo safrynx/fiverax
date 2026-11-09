@@ -1,5 +1,5 @@
 "use client";
-import { DatabaseBackup, Lock, LockOpen } from "lucide-react";
+import { DatabaseBackup, Lock, LockOpen, ScanSearch } from "lucide-react";
 import { useUI } from "@/app/ui";
 import { useSecurityAction } from "../security-actions";
 
@@ -50,4 +50,14 @@ export function RestoreBackupButton({ id, disabled }: { id: number; disabled: bo
     if (ok) await run("discord_restore", { backupId: id }, "Restauration demandée : suis-la dans les incidents");
   }
   return <button className="btn" disabled={busy || disabled} onClick={restore}>Restaurer</button>;
+}
+
+/** Ask the bot for a security audit of the Discord (permissions, bots, @everyone, 2FA…), back within ~15 s. */
+export function DiscordAuditButton({ disabled, again }: { disabled: boolean; again: boolean }) {
+  const { run, busy } = useSecurityAction();
+  return (
+    <button className="btn primary" disabled={busy || disabled} onClick={() => run("discord_audit", {}, "Audit demandé : le résultat arrive d'ici 15 à 30 s (actualise la page)")}>
+      <ScanSearch size={15} />{again ? "Relancer l'audit" : "Lancer l'audit"}
+    </button>
+  );
 }

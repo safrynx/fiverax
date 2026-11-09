@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clientIp } from "@/lib/client-ip";
 import { receiveWebhook, TEBEX_WEBHOOK_IPS } from "@/lib/tebex";
 
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ key
   const { key } = await params;
   if (!/^[\w-]{16,64}$/.test(key)) return NextResponse.json({ error: "unknown_webhook" }, { status: 404 });
   if (process.env.TEBEX_WEBHOOK_IP_CHECK === "1") {
-    const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || req.headers.get("x-real-ip") || "";
+    const ip = clientIp(req.headers) ?? "";
     if (!TEBEX_WEBHOOK_IPS.includes(ip)) return NextResponse.json({ error: "unknown_webhook" }, { status: 404 });
   }
   const raw = await req.text();

@@ -23,6 +23,7 @@ export default async function PublicFrame({ children }: { children: React.ReactN
             <Link href="/annuaire?sort=players">Les plus joués</Link>
             <Link href="/annuaire?sort=votes">Top votes</Link>
             <Link href="/joueur">Espace joueur</Link>
+            <Link href="/guides">Tutoriels</Link>
           </nav>
           {identity ? <Link href="/servers" className="btn sm">Dashboard</Link> : <CtaLink href="/login" className="btn sm">Ajouter mon serveur</CtaLink>}
         </div>

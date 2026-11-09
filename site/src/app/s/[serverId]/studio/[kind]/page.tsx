@@ -23,7 +23,7 @@ export default async function StudioPage({ params }: { params: Promise<{ serverI
 
   return (
     <Shell user={user} server={server} active={`studio_${kind}`}>
-      <PageHead kicker="Studio IA" title={meta.title}>{meta.lead}</PageHead>
+      <PageHead kicker="Studio IA" title={meta.title} help="/guides/studio-ia">{meta.lead}</PageHead>
       {!studioAIConfigured() && kind !== "map" && (
         <div className="banner"><b>IA non configurée.</b> Ajoute <code>AI_API_KEY</code> (et <code>AI_BASE_URL</code>) dans l&apos;environnement du site : sans elle tu peux seulement écrire le code à la main.</div>
       )}

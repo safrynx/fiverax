@@ -3,6 +3,7 @@ import { db, stmt, type Stmt } from "./db";
 import { latestBanKeysStmt } from "./network-keys";
 import { isBanCategory, type BanCategory } from "./network-shared";
 import { anticheatSchema, antiraidSchema, detectionLabel, type AnticheatSettings, type AntiraidSettings } from "./security-config";
+import { riskScore, topKinds, type KindStats } from "./security-insights";
 
 /**
  * Security of a server: anticheat settings and bans (enforced by the FiveM agent), anticheat detections and
@@ -446,4 +447,114 @@ export async function pruneSecurityData(now = new Date()): Promise<number> {
     stmt("DELETE FROM bot_actions WHERE created_at < ?", [iso(new Date(now.getTime() - 30 * 86400_000))])
   ]);
   return results[0].changes + results[1].changes;
+}
+
+// ---- insights (security center, anticheat tuning) ----
+
+/** Detections of the last days per kind: how many, how many reviewed each way, how many players. */
+export async function detectionStats(serverId: string, days = 7, now = new Date()): Promise<KindStats[]> {
+  const rows = await db.all<{ kind: string; total: number; dismissed: number | null; confirmed: number | null; players: number }>(
+    `SELECT kind, COUNT(*) AS total, SUM(CASE WHEN status = 'dismissed' THEN 1 ELSE 0 END) AS dismissed,
+            SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed, COUNT(DISTINCT COALESCE(player_id, player_name)) AS players
+     FROM ac_detections WHERE server_id = ? AND at >= ? GROUP BY kind ORDER BY total DESC`,
+    [serverId, iso(new Date(now.getTime() - days * 86400_000))]
+  );
+  return rows.map((r) => ({ kind: r.kind, total: Number(r.total), dismissed: Number(r.dismissed ?? 0), confirmed: Number(r.confirmed ?? 0), players: Number(r.players) }));
+}
+
+export type RiskPlayer = { playerId: number; name: string; score: number; kinds: string; detections: number; lastAt: string; banned: boolean };
+
+/** Players of the last days ranked by risk (lib/security-insights riskScore), the riskiest first. */
+export async function riskPlayers(serverId: string, days = 7, limit = 8, now = new Date()): Promise<RiskPlayer[]> {
+  const since = iso(new Date(now.getTime() - days * 86400_000));
+  const [detections, shots] = await db.batch(
+    [
+      stmt(
+        `SELECT player_id, player_name, kind, status, at FROM ac_detections
+         WHERE server_id = ? AND at >= ? AND player_id IS NOT NULL AND status <> 'dismissed' AND kind <> 'connection_refused' ORDER BY id DESC LIMIT 5000`,
+        [serverId, since]
+      ),
+      stmt(
+        `SELECT player_id, SUM(CASE WHEN ai_verdict = 'cheat' THEN 1 ELSE 0 END) AS cheat, SUM(CASE WHEN ai_verdict = 'suspicious' THEN 1 ELSE 0 END) AS suspicious
+         FROM ac_screenshots WHERE server_id = ? AND created_at >= ? AND player_id IS NOT NULL GROUP BY player_id`,
+        [serverId, since]
+      )
+    ],
+    "read"
+  );
+  const byPlayer = new Map<number, { name: string; list: { kind: string; status: string }[]; lastAt: string; aiCheat: number; aiSuspicious: number }>();
+  for (const r of detections.rows) {
+    const id = Number(r.player_id);
+    const entry = byPlayer.get(id) ?? { name: String(r.player_name), list: [], lastAt: String(r.at), aiCheat: 0, aiSuspicious: 0 };
+    entry.list.push({ kind: String(r.kind), status: String(r.status) });
+    byPlayer.set(id, entry);
+  }
+  for (const r of shots.rows) {
+    const entry = byPlayer.get(Number(r.player_id));
+    if (entry) {
+      entry.aiCheat = Number(r.cheat ?? 0);
+      entry.aiSuspicious = Number(r.suspicious ?? 0);
+    }
+  }
+  const ranked = [...byPlayer.entries()]
+    .map(([playerId, e]) => ({ playerId, name: e.name, score: riskScore({ detections: e.list, aiCheat: e.aiCheat, aiSuspicious: e.aiSuspicious }), kinds: topKinds(e.list), detections: e.list.length, lastAt: e.lastAt }))
+    .sort((a, b) => b.score - a.score || b.lastAt.localeCompare(a.lastAt))
+    .slice(0, limit);
+  if (!ranked.length) return [];
+  const banned = new Set(
+    (await db.all<{ player_id: number }>(
+      `SELECT DISTINCT player_id FROM bans WHERE server_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) AND player_id IN (${ranked.map(() => "?").join(", ")})`,
+      [serverId, iso(now), ...ranked.map((r) => r.playerId)]
+    )).map((r) => Number(r.player_id))
+  );
+  return ranked.map((r) => ({ ...r, banned: banned.has(r.playerId) }));
+}
+
+export type TimelineDay = { day: string; detections: number; refused: number; incidents: number; bans: number };
+
+/** Security events per day (UTC) over the last days, oldest first, every day present. */
+export async function securityTimeline(serverId: string, days = 7, now = new Date()): Promise<TimelineDay[]> {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1)));
+  const since = iso(start);
+  const [det, inc, bans] = await db.batch(
+    [
+      stmt(
+        `SELECT substr(at, 1, 10) AS day, SUM(CASE WHEN kind = 'connection_refused' THEN 0 ELSE 1 END) AS detections,
+                SUM(CASE WHEN kind = 'connection_refused' THEN 1 ELSE 0 END) AS refused
+         FROM ac_detections WHERE server_id = ? AND at >= ? GROUP BY day`,
+        [serverId, since]
+      ),
+      stmt("SELECT substr(at, 1, 10) AS day, COUNT(*) AS n FROM security_incidents WHERE server_id = ? AND at >= ? GROUP BY day", [serverId, since]),
+      stmt("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM bans WHERE server_id = ? AND created_at >= ? GROUP BY day", [serverId, since])
+    ],
+    "read"
+  );
+  const out: TimelineDay[] = [];
+  for (let i = 0; i < days; i++) {
+    const day = iso(new Date(start.getTime() + i * 86400_000)).slice(0, 10);
+    const d = det.rows.find((r) => r.day === day);
+    out.push({
+      day,
+      detections: Number(d?.detections ?? 0),
+      refused: Number(d?.refused ?? 0),
+      incidents: Number(inc.rows.find((r) => r.day === day)?.n ?? 0),
+      bans: Number(bans.rows.find((r) => r.day === day)?.n ?? 0)
+    });
+  }
+  return out;
+}
+
+export type SecurityEvent = { source: "detection" | "incident" | "ban"; id: number; kind: string; who: string | null; playerId: number | null; action: string | null; at: string };
+
+/** The latest security events of every kind, newest first (security center feed). */
+export async function recentSecurityEvents(serverId: string, limit = 12): Promise<SecurityEvent[]> {
+  const rows = await db.all<{ source: SecurityEvent["source"]; id: number; kind: string; who: string | null; player_id: number | null; action: string | null; at: string }>(
+    `SELECT * FROM (
+       SELECT 'detection' AS source, id, kind, player_name AS who, player_id, action, at FROM ac_detections WHERE server_id = ? AND kind <> 'connection_refused'
+       UNION ALL SELECT 'incident', id, kind, actor_name, NULL, NULL, at FROM security_incidents WHERE server_id = ?
+       UNION ALL SELECT 'ban', id, source, name, player_id, reason, created_at FROM bans WHERE server_id = ?
+     ) ORDER BY at DESC LIMIT ?`,
+    [serverId, serverId, serverId, limit]
+  );
+  return rows.map((r) => ({ source: r.source, id: Number(r.id), kind: r.kind, who: r.who, playerId: r.player_id === null ? null : Number(r.player_id), action: r.action, at: r.at }));
 }

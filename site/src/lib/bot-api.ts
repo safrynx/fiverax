@@ -4,8 +4,9 @@ import { storePlaytimeTotals } from "./playtime";
 import { storeGuildRoles } from "./roles";
 import { invalidateConfig } from "./config";
 import { db, stmt } from "./db";
+import { getPlatformSettings } from "./platform";
 import { getSecuritySettings, recordIncident } from "./security";
-import { getServerByGuild, listServers, type Server } from "./servers";
+import { activeServerByGuild, listServers, type Server } from "./servers";
 import { syncStaffMembers, upsertStaffMember } from "./sync";
 import { closeAllVoiceSessions, closeVoiceSession, moveVoiceSession, openVoiceSession, reconcileVoiceSessions } from "./voice";
 
@@ -101,7 +102,8 @@ async function markAlive(server: Server, topRolePosition?: number | null): Promi
 
 /** Guilds the bot should watch: those of the registered servers, with their anti-raid settings. */
 export async function registeredGuilds() {
-  const servers = (await listServers()).filter((s) => s.guildId);
+  // A suspended server's guild is not watched any more: the bot neither reports nor acts there (anti-raid included).
+  const servers = (await listServers()).filter((s) => s.guildId && !s.suspended);
   const guilds = [];
   for (const s of servers) {
     guilds.push({ guildId: s.guildId as string, serverId: s.id, name: s.name, antiraid: (await getSecuritySettings(s.id)).antiraid });
@@ -113,16 +115,17 @@ export async function registeredGuilds() {
 export async function recordHeartbeat(data: Heartbeat) {
   const antiraid: Record<string, unknown> = {};
   for (const guild of data.guilds) {
-    const server = await getServerByGuild(guild.guildId);
+    const server = await activeServerByGuild(guild.guildId);
     if (!server) continue;
     await markAlive(server, guild.topRolePosition);
     antiraid[guild.guildId] = (await getSecuritySettings(server.id)).antiraid;
   }
-  return { servers: Object.keys(antiraid).length, antiraid };
+  // The bot's status / activity chosen in /admin/bot: applied by the bot within a heartbeat.
+  return { servers: Object.keys(antiraid).length, antiraid, presence: (await getPlatformSettings()).bot };
 }
 
 export async function applyIncident(data: z.infer<typeof incidentSchema>) {
-  const server = await getServerByGuild(data.guildId);
+  const server = await activeServerByGuild(data.guildId);
   if (!server) return IGNORED;
   const { guildId: _guild, ...incident } = data;
   void _guild;
@@ -142,7 +145,7 @@ export async function applyIncident(data: z.infer<typeof incidentSchema>) {
 
 /** Full snapshot of one guild: roles, all members, and who is in voice right now. */
 export async function applySync(data: Sync) {
-  const server = await getServerByGuild(data.guildId);
+  const server = await activeServerByGuild(data.guildId);
   if (!server) return IGNORED;
   await storeGuildRoles(server.id, data.roles.filter((r) => r.name !== "@everyone"));
   const members = await syncStaffMembers(server.id, data.members.map(toSynced), "bot");
@@ -152,13 +155,13 @@ export async function applySync(data: Sync) {
 }
 
 export async function applyMember(data: MemberEvent) {
-  const server = await getServerByGuild(data.guildId);
+  const server = await activeServerByGuild(data.guildId);
   if (!server) return IGNORED;
   return { result: await upsertStaffMember(server.id, toSynced(data)) };
 }
 
 export async function applyVoice(data: VoiceEvent) {
-  const server = await getServerByGuild(data.guildId);
+  const server = await activeServerByGuild(data.guildId);
   if (!server) return IGNORED;
   const at = data.at ? new Date(data.at) : new Date();
   if (data.action === "leave") await closeVoiceSession(server.id, data.discordId, at);
@@ -169,7 +172,7 @@ export async function applyVoice(data: VoiceEvent) {
 }
 
 export async function applyPlaytime(data: Playtime) {
-  const server = await getServerByGuild(data.guildId);
+  const server = await activeServerByGuild(data.guildId);
   if (!server) return IGNORED;
   return storePlaytimeTotals(server.id, data.totals);
 }

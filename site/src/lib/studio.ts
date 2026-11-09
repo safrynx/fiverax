@@ -1,4 +1,5 @@
 import { chatJson } from "./ai";
+import type { AiScope } from "./ai-quota";
 import { auditStmt } from "./audit";
 import { db, stmt } from "./db";
 import {
@@ -327,9 +328,9 @@ export function applyFiles(current: StudioFile[], changes: Map<string, string | 
   return [...byPath.entries()].map(([path, content]) => ({ path, content }));
 }
 
-async function chat(system: string, user: string): Promise<string> {
+async function chat(system: string, user: string, quota: AiScope): Promise<string> {
   try {
-    return await chatJson(system, user, { model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000 });
+    return await chatJson(system, user, { quota, model: process.env.AI_CODE_MODEL, maxTokens: Number(process.env.AI_CODE_MAX_TOKENS) || 8000 });
   } catch (error) {
     throw new StudioError(error instanceof Error ? error.message : "ai_error");
   }
@@ -356,11 +357,12 @@ export async function generateCreation(serverId: string, actor: Actor, id: numbe
   if (!studioAIConfigured()) throw new StudioError("ai_not_configured");
   const current = await getCreation(serverId, id);
   if (!current) throw new StudioError("unknown_creation");
+  const quota: AiScope = { serverId, userId: actor.discordId, kind: "studio" };
 
   if (current.kind === "map") {
     const map = cleanMap(current.data.map);
     const user = `Scène actuelle (${map.objects.length} objets) :\n${JSON.stringify(map.objects.map(({ id: oid, model, x, y, z, heading }) => ({ id: oid, model, x, y, z, heading })))}\n\nDemande : ${instruction}`;
-    const reply = parseAIReply(await chat(mapPrompt(), user));
+    const reply = parseAIReply(await chat(mapPrompt(), user, quota));
     if (!reply?.objects) throw new StudioError("ai_unreadable");
     const creation = await saveCreation(serverId, actor, id, { data: { map: cleanMap({ ...map, objects: reply.objects }) } }, { source: "ai", prompt: instruction, summary: reply.summary });
     return { creation, summary: reply.summary };
@@ -369,7 +371,7 @@ export async function generateCreation(serverId: string, actor: Actor, id: numbe
   const user = current.files.length
     ? `Ressource « ${current.resource} » (${current.name}). Fichiers actuels :\n\n${filesContext(current.files)}\n\nDemande de modification : ${instruction}`
     : `Nouvelle ressource « ${current.resource} » (${current.name}).\n\nDemande : ${instruction}`;
-  const reply = parseAIReply(await chat(systemPrompt(current.kind, current.framework), user));
+  const reply = parseAIReply(await chat(systemPrompt(current.kind, current.framework), user, quota));
   if (!reply?.files) throw new StudioError("ai_unreadable");
   const files = applyFiles(current.files, reply.files);
   // The AI writes code: a creation made with blocks / the simple builder goes on as code from here.
