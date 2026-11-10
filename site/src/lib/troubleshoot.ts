@@ -172,7 +172,7 @@ Fichiers des ressources : tu peux les LIRE et les MODIFIER toi-même.
 const FILES_OFF = `
 Tu n'as pas accès aux fichiers (permission « Laisser l'assistant IA lire et modifier les fichiers » absente) : donne le chemin et le code corrigé à copier.`;
 
-const FORBIDDEN_COMMAND = /^\s*(quit|exit|killserver|txaReboot)\b|\b(ban|wipe|drop\s+table|truncate|delete\s+from)\b/i;
+export const FORBIDDEN_COMMAND = /^\s*(quit|exit|killserver|txaReboot)\b|\b(ban|wipe|drop\s+table|truncate|delete\s+from)\b/i;
 
 const ACCOUNT_LABEL: Record<string, string> = { cash: "liquide", bank: "banque", black_money: "argent sale" };
 const fmt = (n: unknown) => Number(n).toLocaleString("fr-FR");

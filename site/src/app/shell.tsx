@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeCheck, Ban, BookOpen, PanelsTopLeft, Bot, Crown, Gift, Globe, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, Radar, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, Siren, TrendingUp, Users } from "lucide-react";
+import { BadgeCheck, Ban, BookOpen, PanelsTopLeft, Bot, Crown, Gift, Globe, BadgePercent, Library, Network, WandSparkles, Boxes, CreditCard, ShoppingBag, Store, UserSearch, ChevronsUpDown, FileCode2, Contact, KeyRound, LayoutDashboard, type LucideIcon, Palette, Map as MapIcon, Radio, Radar, ScanSearch, ScrollText, Server as ServerIcon, Settings, ShieldAlert, ShieldCheck, Siren, Sparkles, TrendingUp, Users } from "lucide-react";
 import { can, isOwner } from "@/lib/auth";
 import { isPlatformOwner } from "@/lib/config";
 import { getPlatformSettings } from "@/lib/platform";
@@ -11,7 +11,7 @@ import FeedbackButton from "./feedback-button";
 import LogoutButton from "./logout-button";
 import { GuildIcon } from "./new-server-form";
 
-export type NavKey = "dashboard" | "live" | "map" | "players" | "reports" | "server" | "assistant" | "security" | "anticheat" | "audit" | "protection" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "directory" | "portal" | "referral" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "bot" | "settings";
+export type NavKey = "dashboard" | "copilot" | "live" | "map" | "players" | "reports" | "server" | "assistant" | "security" | "anticheat" | "audit" | "protection" | "bans" | "antiraid" | "studio_ui" | "studio_script" | "studio_map" | "shop" | "shop_payments" | "shop_catalog" | "shop_promos" | "shop_customers" | "shop_settings" | "store_creator" | "network" | "directory" | "portal" | "referral" | "lib_ui" | "lib_script" | "lib_map" | "staff" | "report" | "logs" | "admin" | "bot" | "settings";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; active?: boolean };
 export type NavSection = { label: string; items: NavItem[] };
@@ -47,6 +47,7 @@ export default function Shell({ user, server, active, children }: Props) {
       label: "Pilotage",
       items: [
         item("dashboard", base, "Accueil", LayoutDashboard),
+        item("copilot", `${base}/copilot`, "Copilote IA", Sparkles),
         ...(can(user, "view_logs") ? [item("logs", `${base}/logs`, "Logs", ScrollText)] : [])
       ]
     },

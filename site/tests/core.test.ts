@@ -3551,3 +3551,62 @@ test("bot profile: a server dresses the bot on its own Discord, the admins chang
   }
   assert.equal(await db.get("SELECT 1 FROM bot_profiles WHERE server_id = ?", [server.id]), undefined); // deleted with its server
 });
+
+test("copilote IA: lookups, then actions limited to permissions and hierarchy", async () => {
+  const c = await import("../src/lib/copilot");
+  await m.sync.syncStaffMembers(S, [member(A, ["r-admin"]), member(B, ["r-mod"])]);
+  const server = (await m.servers.getServer(S))!;
+  const user = {
+    serverId: S, owner: false, platformOwner: false, discordId: A, username: "u1", avatarUrl: null,
+    grade: "Admin", gradeLevel: 4, roles: ["r-admin"], permissions: ["warn_add", "set_grade", "view_logs"]
+  };
+  assert.equal(c.parseCopilotJson("pas de json"), null);
+  assert.equal(c.parseCopilotJson('{"answer":"","actions":[]}'), null);
+
+  const prompts: string[] = [];
+  const replies = [
+    { answer: "Je regarde sa fiche.", actions: [], lookups: [{ type: "staff_detail", discordId: B }, { type: "bans" }] },
+    {
+      answer: "Voici.",
+      actions: [
+        { type: "warn_add", discordId: B, reason: "Absent en réunion" },
+        { type: "warn_add", discordId: B, reason: "Absent en réunion" }, // repeated: kept once
+        { type: "warn_add", discordId: A, reason: "soi-même" }, // himself
+        { type: "set_grade", discordId: B, gradeName: "admin", reason: "promo" }, // his own level: refused
+        { type: "ban", playerId: 1, reason: "x", hours: 24 }, // no permission
+        { type: "open", page: "logs" },
+        { type: "open", page: "settings" }, // owners only
+        { type: "inconnu" }
+      ]
+    }
+  ];
+  const realFetch = globalThis.fetch;
+  process.env.AI_API_KEY = "k";
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    const body = JSON.parse(init?.body ?? "{}") as { messages: { content: string }[] };
+    prompts.push(body.messages[1].content);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[prompts.length - 1]) } }] }));
+  }) as typeof fetch;
+  try {
+    const reply = await c.copilot(user, server, { messages: [{ role: "user", content: "avertis u2 pour absence" }] });
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[0], /u2 · Moderator/); // the staff list is in the state
+    assert.match(prompts[1], /Fiche de u2/); // the lookup's result came back to the AI
+    assert.doesNotMatch(prompts[1], /Bans actifs/); // a lookup it may not run is ignored
+    assert.equal(reply.lookups.length, 1);
+    assert.deepEqual(reply.actions.map((a) => a.key), ["warn_add", "open"]);
+    const warn = reply.actions[0];
+    assert.equal(warn.via, "api");
+    if (warn.via === "api") {
+      assert.equal(warn.path, "admin?kind=warn_add");
+      assert.deepEqual(warn.body, { discordId: B, reason: "Absent en réunion" });
+      assert.equal(warn.danger, true);
+    }
+    assert.equal(reply.actions[1].via === "link" && reply.actions[1].href, `/s/${S}/logs`);
+    assert.equal(reply.rejected.length, 4); // himself, grade too high, ban without permission, owners' page
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.AI_API_KEY;
+  }
+  await assert.rejects(c.copilot(user, server, { messages: [{ role: "user", content: "aide" }] }), /ai_not_configured/);
+});

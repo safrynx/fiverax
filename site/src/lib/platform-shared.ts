@@ -57,6 +57,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = platformSettingsSchem
 export const AI_KINDS = {
   studio: "Studio IA",
   assistant: "Assistant IA",
+  copilot: "Copilote IA",
   store: "Store Creator",
   plan: "Plan de protection",
   explain: "Explications du scanner",
