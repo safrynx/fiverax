@@ -213,6 +213,7 @@ export function describeApiError(data: { error?: string; discordStatus?: number;
     case "ai_not_configured": return "IA non configurée : ajoute AI_API_KEY dans l'environnement du site.";
     case "ai_unreadable": return "L'IA a répondu dans un format illisible : relance ou reformule.";
     case "ai_truncated": return "La réponse de l'IA a été coupée (trop longue) : demande une modification plus petite, ou augmente AI_CODE_MAX_TOKENS.";
+    case "ai_unavailable": return "Le service IA est surchargé ou indisponible pour le moment : réessaie dans quelques instants.";
     case "ai_rate_limited": return "Limite du service IA atteinte : réessaie dans une minute.";
     case "not_member": return "Ce serveur ne fait pas partie du réseau Fiverax.";
     case "invalid_resource": return "Ressource refusée (l'agent Fiverax ne se modifie pas).";

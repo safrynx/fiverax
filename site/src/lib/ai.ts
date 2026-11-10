@@ -2,13 +2,17 @@ import { consumeAi, type AiScope } from "./ai-quota";
 
 /**
  * Chat call to the OpenAI-compatible API of the site (AI_BASE_URL / AI_API_KEY) asking for a JSON answer.
- * Errors are codes the panel translates: ai_http_<status>, ai_truncated, ai_rate_limited, ai_disabled, ai_quota_exceeded.
+ * Errors are codes the panel translates: ai_http_<status>, ai_unavailable (provider down or overloaded after retries), ai_truncated, ai_rate_limited, ai_disabled, ai_quota_exceeded.
  * `quota` is required: every call counts against the daily quotas of its server and of the account that asked (ai-quota.ts).
  */
 
 export function aiConfigured(): boolean {
   return Boolean(process.env.AI_API_KEY);
 }
+
+/** Answers worth a new try: rate limit, server errors, overloaded model. */
+const TRANSIENT = new Set([429, 500, 502, 503, 504]);
+const ATTEMPTS = 3;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -20,7 +24,7 @@ export async function chatJson(
   await consumeAi(opts.quota);
   const base = (process.env.AI_BASE_URL || "https://api.groq.com/openai/v1").replace(/\/$/, "");
   const model = opts.model || process.env.AI_MODEL || "llama-3.3-70b-versatile";
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.AI_API_KEY}`, "Content-Type": "application/json" },
@@ -33,11 +37,12 @@ export async function chatJson(
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 110_000)
     });
-    if (res.status === 429 && attempt === 0) {
-      await sleep(8000);
+    // Busy or briefly unavailable provider (Gemini answers 503 under load): try again, a little later each time.
+    if (TRANSIENT.has(res.status) && attempt < ATTEMPTS - 1) {
+      await sleep(res.status === 429 ? 8000 : 2000 * (attempt + 1));
       continue;
     }
-    if (!res.ok) throw new Error(`ai_http_${res.status}`);
+    if (!res.ok) throw new Error(TRANSIENT.has(res.status) && res.status !== 429 ? "ai_unavailable" : `ai_http_${res.status}`);
     const data = (await res.json()) as { choices?: { message?: { content?: string }; finish_reason?: string }[] };
     const choice = data.choices?.[0];
     if (choice?.finish_reason === "length") throw new Error("ai_truncated");
