@@ -18,8 +18,9 @@ export default function TermsPage() {
 
       <h2>1. Le service</h2>
       <p>
-        Fiverax est un panel de gestion pour les serveurs FiveM : gestion du staff depuis Discord, suivi de l&apos;activité, boutique
-        reliée à Tebex, anticheat, scan de sécurité, annuaire des serveurs et espaces joueurs. En utilisant le site, tu acceptes ces
+        Fiverax est un panel de gestion pour les serveurs FiveM : suivi du serveur en direct, reports et console à distance, gestion du
+        staff depuis Discord, suivi de l&apos;activité, boutique reliée à Tebex, anticheat, anti-raid Discord, assistants IA, scan de
+        sécurité, annuaire des serveurs et espaces joueurs. En utilisant le site, tu acceptes ces
         conditions.
       </p>
 

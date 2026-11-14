@@ -3,7 +3,7 @@ export const SITE_URL = (process.env.APP_URL || "https://fiverax.com").replace(/
 
 /** The one-line definition of Fiverax, repeated in metadata and structured data so search engines describe it the same way. */
 export const SITE_DESCRIPTION =
-  "Fiverax est le panel de gestion des serveurs FiveM : staff, boutique Tebex avec Store Creator IA, anticheat, scan de sécurité et activité vocale et en jeu, depuis Discord.";
+  "Fiverax est le dashboard tout-en-un des serveurs FiveM : joueurs en direct, reports avec replay, console, anticheat, anti-raid Discord, gestion du staff, boutique Tebex avec Store Creator IA et copilote IA.";
 
 /** Below this many published servers, the directory index stays out of search results (an empty list reads as a thin page). */
 export const MIN_LISTINGS_TO_INDEX = 10;

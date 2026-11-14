@@ -10,8 +10,8 @@ const FONTS_URL = "https://fonts.googleapis.com/css2?family=Unbounded:wght@500;7
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: "Panel staff FiveM, boutique Tebex et anticheat · Fiverax", template: "%s · Fiverax" },
-  description: "Gère le staff de ton serveur FiveM depuis Discord : grades, avertissements, temps en vocal et en jeu, bilan IA chaque dimanche. Boutique Tebex IA et anticheat.",
+  title: { default: "Panel FiveM tout-en-un : direct, anticheat, staff et boutique Tebex · Fiverax", template: "%s · Fiverax" },
+  description: "Le dashboard de ton serveur FiveM : joueurs en direct sur la carte, reports avec replay, console, anticheat et anti-raid, staff Discord, boutique Tebex et copilote IA.",
   openGraph: OG_BASE,
   twitter: { card: "summary_large_image" }
 };

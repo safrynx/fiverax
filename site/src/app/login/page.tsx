@@ -29,10 +29,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <section className="login-art">
         <Link href="/" style={{ position: "relative" }}><Wordmark size={30} /></Link>
         <Mark size={420} />
-        <blockquote className="rise">
-          Grades, avertissements, activité : ton staff FiveM tient dans un seul panel.
-          <span>Fiverax · Dashboard FiveM multi-serveurs</span>
-        </blockquote>
+        <div style={{ position: "relative" }}>
+          <blockquote className="rise">
+            Joueurs en direct, sécurité, staff, boutique : tout ton serveur FiveM tient dans un seul panel.
+            <span>Fiverax · Dashboard FiveM multi-serveurs</span>
+          </blockquote>
+          <ul className="login-pills rise rise-2">
+            {["En direct & carte", "Reports & replays", "Console", "Anticheat", "Anti-raid", "Copilote IA", "Staff", "Boutique Tebex", "Studio IA", "Portail joueurs"].map((p) => <li key={p}>{p}</li>)}
+          </ul>
+        </div>
       </section>
 
       <section className="login-side">
@@ -45,7 +50,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <div className="eyebrow rise">Espace membre</div>
           <h1 className="rise rise-1">Connexion</h1>
           <p className="muted rise rise-2" style={{ margin: "10px 0 0" }}>
-            Connecte-toi avec ton compte Discord pour retrouver tes serveurs, ou ajouter le tien.
+            Connecte-toi avec ton compte Discord pour retrouver le dashboard de tes serveurs, ou ajouter le tien.
           </p>
 
           {error && (

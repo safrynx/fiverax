@@ -71,6 +71,39 @@
 .lp-row small { display: block; color: var(--muted); font-size: 11px; }
 @media (max-width: 560px) { .lp-row .plate, .lp-row .pips { display: none; } .lp-row { grid-template-columns: 30px 1fr auto; } }
 
+.lp-window aside .grp { padding: 0; margin-bottom: 10px; }
+.lp-window aside small { display: block; padding: 6px 10px 4px; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); opacity: 0.7; }
+.lp-window aside .grp div { padding: 6px 10px; }
+.lp-feed > div { display: grid; grid-template-columns: 92px 1fr auto; gap: 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.lp-feed > div > .tag { justify-self: start; }
+.lp-feed small { display: block; color: var(--muted); font-size: 11.5px; }
+.lp-feed time { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+@media (max-width: 560px) { .lp-feed > div { grid-template-columns: 1fr; gap: 6px; } .lp-feed time { display: none; } }
+
+/* platform overview */
+.lp-pillars { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.lp-pillar { padding: 24px 22px; border-radius: 16px; border: 1px solid var(--line-2); background: linear-gradient(160deg, rgba(var(--accent-rgb), 0.07), transparent 55%); transition: border-color 0.3s var(--ease), transform 0.4s var(--ease); }
+.lp-pillar:hover { border-color: rgba(var(--accent-rgb), 0.45); transform: translateY(-3px); }
+.lp-pillar .ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; border: 1px solid rgba(var(--accent-rgb), 0.3); background: rgba(var(--accent-rgb), 0.08); color: var(--accent); }
+.lp-pillar h3 { font-family: var(--font-display); font-weight: 500; font-size: 16px; margin: 18px 0 6px; }
+.lp-pillar p { margin: 0; color: var(--muted); line-height: 1.55; font-size: 13.5px; }
+.lp-pillar ul { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.lp-pillar li { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 11.5px; color: var(--text); opacity: 0.85; }
+
+/* AI chat demo */
+.lp-chat { border-radius: 18px; border: 1px solid var(--line-2); background: linear-gradient(180deg, rgba(30, 24, 16, 0.7), rgba(14, 11, 7, 0.9)); box-shadow: 0 60px 120px -50px rgba(0, 0, 0, 1), 0 -30px 120px -60px rgba(var(--accent-rgb), 0.5); overflow: hidden; }
+.lp-chat > .bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--accent); }
+.lp-chat > .bar span { font-size: 12px; color: var(--muted); }
+.lp-chat .msgs { display: grid; gap: 14px; padding: clamp(16px, 3vw, 24px); font-size: 13.5px; line-height: 1.55; }
+.lp-chat p { margin: 0; }
+.lp-chat .me { justify-self: end; max-width: 85%; padding: 10px 14px; border-radius: 14px 14px 4px 14px; background: rgba(var(--accent-rgb), 0.16); border: 1px solid rgba(var(--accent-rgb), 0.3); }
+.lp-chat .ai { display: grid; gap: 10px; max-width: 92%; padding: 12px 14px; border-radius: 14px 14px 14px 4px; border: 1px solid var(--line-2); background: rgba(10, 8, 5, 0.5); }
+.lp-chat .act { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(var(--accent-rgb), 0.35); }
+.lp-chat .act > svg { color: var(--accent); flex: none; }
+.lp-chat .act > div { flex: 1; min-width: 0; }
+.lp-chat .act small { display: block; color: var(--muted); font-size: 11.5px; }
+.lp-chat .act u { text-decoration: none; padding: 5px 11px; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--accent); color: var(--on-accent); }
+
 /* features */
 .lp-grid { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
 @media (min-width: 720px) { .lp-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -136,6 +169,8 @@
 .login-card h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 3vw, 34px); letter-spacing: -0.03em; margin: 12px 0 0; }
 .btn.discord { width: 100%; padding: 14px 18px; border-radius: 12px; font-size: 14px; color: #fff; border-color: transparent; background: #5865f2; box-shadow: 0 14px 34px -14px rgba(88, 101, 242, 0.9); }
 .btn.discord:hover:not(:disabled) { background: #6b77f5; border-color: transparent; }
+.login-art .login-pills { position: relative; list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; max-width: 46ch; }
+.login-art .login-pills li { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line-2); background: rgba(10, 8, 5, 0.5); font-size: 12px; color: var(--muted); }
 .login-perms { margin: 28px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); list-style: none; display: grid; gap: 10px; color: var(--muted); font-size: 13px; }
 .login-perms li { display: flex; gap: 10px; align-items: flex-start; }
 .login-perms svg { color: var(--accent); flex: none; margin-top: 2px; }
