@@ -11,3 +11,6 @@ node_modules
 .next
 .next-verify
 *.tsbuildinfo
+
+# Vidéos et musiques promo : trop lourdes pour le dépôt (le clone de chaque déploiement les télécharge)
+promo/
